@@ -3,7 +3,13 @@ import json
 import os
 import logging
 import uuid
+import requests
 from dotenv import load_dotenv
+from urllib.parse import urlencode
+from quart import Quart, session, request, jsonify
+
+
+
 
 from quart import (
     Blueprint,
@@ -12,8 +18,11 @@ from quart import (
     make_response,
     request,
     send_from_directory,
-    render_template
+    render_template,
 )
+
+
+
 
 from openai import AsyncAzureOpenAI
 from azure.identity.aio import DefaultAzureCredential, get_bearer_token_provider
@@ -21,6 +30,11 @@ from backend.auth.auth_utils import get_authenticated_user_details
 from backend.history.cosmosdbservice import CosmosConversationClient
 
 from backend.utils import format_as_ndjson, format_stream_response, generateFilterString, parse_multi_columns, format_non_streaming_response
+from urllib.parse import urlparse
+import requests
+
+
+
 
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
 
@@ -35,6 +49,7 @@ UI_SHOW_SHARE_BUTTON = os.environ.get("UI_SHOW_SHARE_BUTTON", "true").lower() ==
 
 def create_app():
     app = Quart(__name__)
+    app.secret_key = 'zi3dfaha7d.snsh5587hmshd'  # Replace with your actual secret key
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     return app
@@ -69,7 +84,8 @@ SEARCH_ENABLE_IN_DOMAIN = os.environ.get("SEARCH_ENABLE_IN_DOMAIN", "true")
 
 # ACS Integration Settings
 AZURE_SEARCH_SERVICE = os.environ.get("AZURE_SEARCH_SERVICE")
-AZURE_SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX")
+#AZURE_SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_INDEX='mba-index-dev'
 AZURE_SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY", None)
 AZURE_SEARCH_USE_SEMANTIC_SEARCH = os.environ.get("AZURE_SEARCH_USE_SEMANTIC_SEARCH", "false")
 AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG = os.environ.get("AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG", "default")
@@ -94,6 +110,7 @@ AZURE_OPENAI_TOP_P = os.environ.get("AZURE_OPENAI_TOP_P", 1.0)
 AZURE_OPENAI_MAX_TOKENS = os.environ.get("AZURE_OPENAI_MAX_TOKENS", 1000)
 AZURE_OPENAI_STOP_SEQUENCE = os.environ.get("AZURE_OPENAI_STOP_SEQUENCE")
 AZURE_OPENAI_SYSTEM_MESSAGE = os.environ.get("AZURE_OPENAI_SYSTEM_MESSAGE", "You are an AI assistant that helps people find information.")
+AZURE_OPENAI_SYSTEM_MESSAGE_TUTOR = os.environ.get("AZURE_OPENAI_SYSTEM_MESSAGE_TUTOR", "You are an upbeat, encouraging tutor who helps students understand concepts by explaining ideas and asking students questions. Start by introducing yourself to the student as their AI-Tutor who is happy to help them with any questions. Only ask one question at a time. First, ask them what they would like to learn about. Wait for the response. Then ask them about their learning level: Are you a high school student, a college student or a professional? Wait for their response. Then ask them what they know already about the topic they have chosen. Wait for a response. Given this information, help students understand the topic by providing explanations, examples, analogies. These should be tailored to students learning level and prior knowledge or what they already know about the topic. Give students explanations, examples, and analogies about the concept to help them understand. You should guide students in an open-ended way. Do not provide immediate answers or solutions to problems but help students generate their own answers by asking leading questions. Ask students to explain their thinking. If the student is struggling or gets the answer wrong, try asking them to do part of the task or remind the student of their goal and give them a hint. If students improve, then praise them and show excitement. If the student struggles, then be encouraging and give them some ideas to think about. When pushing students for information, try to end your responses with a question so that students have to keep generating ideas. Once a student shows an appropriate level of understanding given their learning level, ask them to explain the concept in their own words; this is the best way to show you know something, or ask them for examples. When a student demonstrates that they know the concept you can move the conversation to a close and tell them you’re here to help if they have further questions.")
 AZURE_OPENAI_PREVIEW_API_VERSION = os.environ.get("AZURE_OPENAI_PREVIEW_API_VERSION", "2023-12-01-preview")
 AZURE_OPENAI_STREAM = os.environ.get("AZURE_OPENAI_STREAM", "true")
 AZURE_OPENAI_MODEL_NAME = os.environ.get("AZURE_OPENAI_MODEL_NAME", "gpt-35-turbo-16k") # Name of the model, e.g. 'gpt-35-turbo-16k' or 'gpt-4'
@@ -166,6 +183,13 @@ AZURE_MLINDEX_URL_COLUMN = os.environ.get("AZURE_MLINDEX_URL_COLUMN")
 AZURE_MLINDEX_VECTOR_COLUMNS = os.environ.get("AZURE_MLINDEX_VECTOR_COLUMNS")
 AZURE_MLINDEX_QUERY_TYPE = os.environ.get("AZURE_MLINDEX_QUERY_TYPE")
 
+# Canvas Integration
+CANVAS_API_KEY = os.environ.get("CANVAS_API_KEY")
+
+# Tuck APIs Key
+TUCK_AZURE_API_KEY = os.environ.get("TUCK_AZURE_API_KEY")
+
+
 
 # Frontend Settings via Environment Variables
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
@@ -182,6 +206,29 @@ frontend_settings = {
         "show_share_button": UI_SHOW_SHARE_BUTTON
     }
 }
+
+
+
+def validate_cas_ticket(ticket, service):
+    # CAS server's serviceValidate URL
+    cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
+    
+    params = {'ticket': ticket, 'service': service, 'format': 'json'}
+    encoded_params = urlencode(params)
+    response = requests.get(cas_url, params=encoded_params)
+    logging.debug('CAS Validation Response')
+    logging.debug(response.text)
+    if response.status_code == 200:
+        # Parse the response JSON to check for authentication success
+        response_json = response.json()
+        if 'authenticationSuccess' in response_json.get('serviceResponse', {}):
+            return True
+        else:
+            return False
+    else:
+        print(f'Error: {response.status_code}')
+        return False
+    
 
 def should_use_data():
     global DATASOURCE_TYPE
@@ -294,6 +341,53 @@ def init_cosmosdb_client():
 
 
 def get_configured_data_source():
+
+
+    if session.get('prompt_type', 'default') == 'tutor':
+        AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT = AZURE_OPENAI_SYSTEM_MESSAGE_TUTOR
+        logging.debug('current system message')
+        logging.debug(AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT)  
+    else:
+        AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT = AZURE_OPENAI_SYSTEM_MESSAGE
+        logging.debug('current system message')
+        logging.debug(AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT)  
+        
+
+    # url = 'https://apis.tuck.dartmouth.edu/canvas/enrollments'
+    # headers = {'Authorization': 'Bearer ' + CANVAS_API_KEY}
+    # params = {'action': 'by_user', 'user': 'd1204v3'}
+
+    # response = requests.get(url, headers=headers, params=params)
+
+    # if response.status_code == 200:
+    #     data = response.json()
+    #     courses = [item['course_id'] for item in data]
+
+    #     logging.debug('courses')
+    #     logging.debug(courses)
+    #     # Continue with the rest of the function using the courses data
+    # else:
+    #     print(f'Error: {response.status_code}')
+    #     # Handle error
+
+
+    url = 'https://apis.tuck.dartmouth.edu/azure/ai_search'
+    headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
+    params = {'action': 'generate_template', 'user_id': session['user']}
+
+    response = requests.get(url, headers=headers, params=params)
+
+    if response.status_code == 200:
+        data = response.json()
+        query_filter = data['filter']
+        logging.debug(session['user'])
+        logging.debug('query filter')
+        logging.debug(f"QUERY FILTER: {json.dumps(query_filter, indent=4)}")
+        # Continue with the rest of the function using the courses data
+    else:
+        print(f'Error: {response.status_code}')
+        # Handle error       
+    
     data_source = {}
     query_type = "simple"
     if DATASOURCE_TYPE == "AzureCognitiveSearch":
@@ -346,11 +440,14 @@ def get_configured_data_source():
                     "topNDocuments": int(AZURE_SEARCH_TOP_K) if AZURE_SEARCH_TOP_K else int(SEARCH_TOP_K),
                     "queryType": query_type,
                     "semanticConfiguration": AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG if AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG else "",
-                    "roleInformation": AZURE_OPENAI_SYSTEM_MESSAGE,
-                    "filter": filter,
+                    "roleInformation": AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT,
+                   "filter": query_filter, # Dynamic from template
+                  # "filter": filter, # Default 'None' set above.
                     "strictness": int(AZURE_SEARCH_STRICTNESS) if AZURE_SEARCH_STRICTNESS else int(SEARCH_STRICTNESS)
                 }
             }
+        logging.debug('data source')
+        logging.debug(data_source)
     elif DATASOURCE_TYPE == "AzureCosmosDB":
         query_type = "vector"
 
@@ -540,6 +637,7 @@ def prepare_model_args(request_body):
 
 async def send_chat_request(request):
     model_args = prepare_model_args(request)
+    print(f"Model arguments: {model_args}")  # Print the model arguments
 
     try:
         azure_openai_client = init_openai_client()
@@ -602,6 +700,8 @@ def get_frontend_settings():
     except Exception as e:
         logging.exception("Exception in /frontend_settings")
         return jsonify({"error": str(e)}), 500  
+    
+ 
 
 ## Conversation History API ## 
 @bp.route("/history/generate", methods=["POST"])
@@ -939,6 +1039,90 @@ async def ensure_cosmos():
             return jsonify({"error": f"{cosmos_exception}: {AZURE_COSMOSDB_CONVERSATIONS_CONTAINER}"}), 422
         else:
             return jsonify({"error": "CosmosDB is not working"}), 500
+        
+
+
+
+# @bp.route('/api/validate', methods=['GET'])
+# async def validate_ticket():
+#     ticket = request.args.get('ticket')
+#     parsed_url = urlparse(request.url)
+#     service = f"{parsed_url.scheme}://{parsed_url.netloc}/"
+#     # service = request.url
+#     # service = 'http://chatapp.tuck.dartmouth.edu:8080/'
+#     cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
+  
+#     params = {'ticket': ticket, 'service': service, 'format': 'json'}
+#     encoded_params = urlencode(params)
+#     response = requests.get(cas_url, params=encoded_params)
+#     logging.debug(response)
+#     logging.debug(response.text)
+#     if response.status_code == 200:
+#         # Parse the response JSON to check for authentication success
+#         response_json = response.json()
+#         if 'authenticationSuccess' in response_json.get('serviceResponse', {}):
+#             session['user'] = response_json.get('serviceResponse').get('authenticationSuccess').get('attributes').get('netid')[0]
+#             print(session.get('user'))  # This will print netid if the user is authenticated
+#             return jsonify({'status': 'success', 'response_json': response_json}), 200
+#         else:
+#             return jsonify({'status': 'failure', 'response_json': response_json}), 401
+#     else:
+#         print(f'Error: {response.status_code}')
+#         return jsonify({'status': 'failure',  'response_json': response_json}), 500
+
+
+@bp.route('/api/validate', methods=['GET'])
+async def validate_ticket():
+    # Check if there is an existing valid user session
+    if 'user' in session:
+        return jsonify({'status': 'success', 'message': 'Existing session'}), 200
+
+    # If there isn't, proceed with the existing ticket validation logic
+    ticket = request.args.get('ticket')
+    parsed_url = urlparse(request.url)
+    service = f"{parsed_url.scheme}://{parsed_url.netloc}/"
+    cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
+  
+    params = {'ticket': ticket, 'service': service, 'format': 'json'}
+    encoded_params = urlencode(params)
+    response = requests.get(cas_url, params=encoded_params)
+    logging.debug(response)
+    logging.debug(response.text)
+    if response.status_code == 200:
+        # Parse the response JSON to check for authentication success
+        response_json = response.json()
+        if 'authenticationSuccess' in response_json.get('serviceResponse', {}):
+            session['user'] = response_json.get('serviceResponse').get('authenticationSuccess').get('attributes').get('netid')[0]
+            print(session.get('user'))  # This will print netid if the user is authenticated
+            return jsonify({'status': 'success', 'response_json': response_json}), 200
+        else:
+            return jsonify({'status': 'failure', 'response_json': response_json}), 401
+    else:
+        print(f'Error: {response.status_code}')
+        return jsonify({'status': 'failure',  'response_json': response_json}), 500
+
+
+
+@bp.route('/api/check_session', methods=['GET'])
+async def check_session():
+    if 'user' in session:
+        return jsonify({'status': 'success'}), 200
+    else:
+        return jsonify({'status': 'failure'}), 401
+    
+
+
+#customization - add endpoint to set prompt type to session variable
+@bp.route('/api/set_prompt_template', methods=['POST'])
+async def set_prompt_template():
+    data = await request.get_json()
+
+    prompt_type = data.get('promptType', None)
+    if prompt_type:
+        print(f"Prompt Type: {prompt_type}")  # Debug log the promptType
+        session['prompt_type'] = prompt_type
+    return {'promptType': prompt_type}, 200
+
 
 
 async def generate_title(conversation_messages):

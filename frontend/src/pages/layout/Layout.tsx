@@ -2,11 +2,13 @@ import { Outlet, Link } from "react-router-dom";
 import styles from "./Layout.module.css";
 import Contoso from "../../assets/Contoso.svg";
 import { CopyRegular } from "@fluentui/react-icons";
-import { Dialog, Stack, TextField } from "@fluentui/react";
+import { Dialog, Stack, TextField, Checkbox  } from "@fluentui/react";
 import { useContext, useEffect, useState } from "react";
 import { HistoryButton, ShareButton } from "../../components/common/Button";
 import { AppStateContext } from "../../state/AppProvider";
 import { CosmosDBStatus } from "../../api";
+import { IconButton, Text } from "@fluentui/react";
+
 
 const Layout = () => {
     const [isSharePanelOpen, setIsSharePanelOpen] = useState<boolean>(false);
@@ -17,6 +19,32 @@ const Layout = () => {
     const [showHistoryLabel, setShowHistoryLabel] = useState<string>("Show chat history");
     const appStateContext = useContext(AppStateContext)
     const ui = appStateContext?.state.frontendSettings?.ui;
+    const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState<boolean>(false);
+    const [isTutorMode, setIsTutorMode] = useState<boolean>(false);
+
+
+    const handleSettingsClick = () => {
+        console.log('Settings button clicked');
+        setIsSettingsDialogOpen(true);
+    };
+
+    const handleSettingsDialogDismiss = () => {
+        setIsSettingsDialogOpen(false);
+    };
+
+    const handleTutorModeChange = async (ev?: React.FormEvent<HTMLElement>, isChecked?: boolean) => {
+        setIsTutorMode(isChecked || false);
+        const response = await fetch('/api/set_prompt_template', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ promptType: isChecked ? 'tutor' : 'default' })
+        });
+        if (!response.ok) {
+            console.error('Failed to set prompt type');
+        }
+    };
 
     const handleShareClick = () => {
         setIsSharePanelOpen(true);
@@ -64,7 +92,10 @@ const Layout = () => {
         return () => window.removeEventListener('resize', handleResize);
       }, []);
 
-    return (
+
+      
+
+      return (
         <div className={styles.layout}>
             <header className={styles.header} role={"banner"}>
                 <Stack horizontal verticalAlign="center" horizontalAlign="space-between">
@@ -77,6 +108,13 @@ const Layout = () => {
                         <Link to="/" className={styles.headerTitleContainer}>
                             <h1 className={styles.headerTitle}>{ui?.title}</h1>
                         </Link>
+                        <IconButton
+                            iconProps={{ iconName: 'Settings' }}
+                            title="Settings"
+                            ariaLabel="Settings"
+                            onClick={handleSettingsClick}
+                        />
+                        <Text variant="large">Settings</Text>
                     </Stack>
                     {ui?.show_share_button &&
                         <Stack horizontal tokens={{ childrenGap: 4 }}>
@@ -127,6 +165,23 @@ const Layout = () => {
                     </div>
                 </Stack>
             </Dialog>
+
+
+    <Dialog
+    onDismiss={handleSettingsDialogDismiss}
+    hidden={!isSettingsDialogOpen}
+    dialogContentProps={{
+        title: 'Chat Mode',
+    }}
+    >
+      <Checkbox
+        label="Tutor Me"
+        checked={isTutorMode}
+        onChange={handleTutorModeChange}
+    />
+    </Dialog>
+
+
         </div>
     );
 };

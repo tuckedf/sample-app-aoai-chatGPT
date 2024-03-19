@@ -302,10 +302,13 @@ export const historyEnsure = async (): Promise<CosmosDBHealth> => {
     return response;
 }
 
+/*
 export const frontendSettings = async (): Promise<Response | null> => {
     const response = await fetch("/frontend_settings", {
         method: "GET",
     }).then((res) => {
+        console.log('successfully retrieved front end settings')
+        console.log(res);
         return res.json()
     }).catch((err) => {
         console.error("There was an issue fetching your data.");
@@ -314,6 +317,38 @@ export const frontendSettings = async (): Promise<Response | null> => {
 
     return response
 }
+*/
+
+export const frontendSettings = async (): Promise<any> => {
+    const response = await fetch("/frontend_settings", {
+        method: "GET",
+    }).then((res) => {
+        console.log('successfully retrieved front end settings')
+        console.log(res);
+        return res.json()
+    }).catch((err) => {
+        console.error("There was an issue fetching your data.");
+        return null
+    })
+
+    // const url = 'https://apis.tuck.dartmouth.edu/canvas/enrollments?action=by_user&user=netid';
+    // const options = {
+    //     method: 'GET',
+    //     headers: {
+    //         'Authorization': 'Bearer '
+    //     }
+    // };
+
+    // const canvasResponse = await fetch(url, options);
+    // const canvasData = await canvasResponse.json();
+
+    // console.log(canvasData);
+
+    return response
+}
+
+
+
 export const historyMessageFeedback = async (messageId: string, feedback: string): Promise<Response> => {
     const response = await fetch("/history/message_feedback", {
         method: "POST",
