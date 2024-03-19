@@ -1073,6 +1073,7 @@ async def ensure_cosmos():
 
 @bp.route('/api/validate', methods=['GET'])
 async def validate_ticket():
+    session['auth_state'] = 'validating'
     # Check if there is an existing valid user session
     if 'user' in session:
         return jsonify({'status': 'success', 'message': 'Existing session'}), 200
