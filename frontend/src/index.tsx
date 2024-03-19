@@ -55,8 +55,7 @@ export default function App() {
                     if (response.status === 200) {
                         return response.json();
                     } else if (response.status === 401) {
-                        console.log('error 401')
-                       
+                        //window.location.href = 'https://login.dartmouth.edu/cas/login?service=' + encodeURIComponent(window.location.href);
                         throw new Error('Unauthorized');
                     } else {
                         throw new Error('Unexpected response status: ' + response.status);
