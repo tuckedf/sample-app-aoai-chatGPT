@@ -1163,7 +1163,7 @@ async def validate_ticket():
 
         response_json = response.json()
         if 'authenticationSuccess' not in response_json.get('serviceResponse', {}):
-            return jsonify({'status': 'failure'}), 401
+            return jsonify({'status': 'failure', 'ticket_data': response_json,}), 401
 
         # If ticket is valid, set user netid to session and return success
         user_netid = response_json['serviceResponse']['authenticationSuccess']['attributes']['netid'][0]
