@@ -172,6 +172,7 @@ const Layout = () => {
     hidden={!isSettingsDialogOpen}
     dialogContentProps={{
         title: 'Chat Mode',
+        showCloseButton: true
     }}
     >
       <Checkbox

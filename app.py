@@ -4,9 +4,12 @@ import os
 import logging
 import uuid
 import requests
+import httpx
 from dotenv import load_dotenv
 from urllib.parse import urlencode
 from quart import Quart, session, request, jsonify
+from azure.cosmos import CosmosClient, exceptions
+from azure.core.exceptions import ResourceNotFoundError
 
 
 
@@ -33,10 +36,74 @@ from backend.utils import format_as_ndjson, format_stream_response, generateFilt
 from urllib.parse import urlparse
 import requests
 
+from quart.sessions import SessionInterface, SessionMixin
+from azure.cosmos import PartitionKey
+from uuid import uuid4
+
+class CosmosDbSession(dict, SessionMixin):
+    def __init__(self, initial=None, sid=None):
+        self.sid = sid or str(uuid4())
+        super().__init__(initial or {})
+
+class CosmosDbSession(dict, SessionMixin):
+    def __init__(self, initial=None, sid=None):
+        self.sid = sid or str(uuid4())
+        super().__init__(initial or {})
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.modified = True
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        self.modified = True
+
+class CosmosDbSessionInterface(SessionInterface):
+    def __init__(self, cosmos_client, database_name, container_name):
+        self.client = cosmos_client.cosmosdb_client
+        self.database = self.client.get_database_client(database_name)
+        self.container_name = container_name
+
+    async def open_session(self, app, request):
+        sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+        if sid is None:
+            sid = str(uuid4())  # generate a new sid if it's None
+        print(f"Session ID: {sid}")  # print sid
+
+        container = self.database.get_container_client(self.container_name)
+
+        # Check if the session exists
+        query = f"SELECT * FROM c WHERE c.id = '{sid}'"
+        print(f"Query: {query}")  # print query
+
+        items = []
+        async for item in container.query_items(query=query):
+            items.append(item)
+
+        if len(items) == 0:
+            print(f"Session not found, creating new session with id: {sid}")
+            stored_session = {'id': sid}
+            await container.upsert_item(stored_session)
+        else:
+            stored_session = items[0]
+            print(f"Stored Session: {stored_session}")  # print stored session
+
+        return CosmosDbSession(initial=stored_session, sid=sid)
+
+    async def save_session(self, app, session, response):
+        container = self.database.get_container_client(self.container_name)
+        session_dict = {**session, 'id': session.sid}
+        print(f"saving session, sid: {session.sid}, session_dict: {session_dict}")
+        await container.upsert_item(session_dict)
+        response.set_cookie(app.config['SESSION_COOKIE_NAME'], session.sid)
+
+
 
 
 
 bp = Blueprint("routes", __name__, static_folder="static", template_folder="static")
+
+
 
 # UI configuration (optional)
 UI_TITLE = os.environ.get("UI_TITLE") or "Contoso"
@@ -47,11 +114,45 @@ UI_CHAT_DESCRIPTION = os.environ.get("UI_CHAT_DESCRIPTION") or "This chatbot is 
 UI_FAVICON = os.environ.get("UI_FAVICON") or "/favicon.ico"
 UI_SHOW_SHARE_BUTTON = os.environ.get("UI_SHOW_SHARE_BUTTON", "true").lower() == "true"
 
+# COSMODB Account Settings
+AZURE_COSMOSDB_ACCOUNT = os.environ.get("AZURE_COSMOSDB_ACCOUNT")
+AZURE_COSMOSDB_ACCOUNT_KEY = os.environ.get("AZURE_COSMOSDB_ACCOUNT_KEY")
+
+# COSMODB Chat History Settings Settings
+AZURE_COSMOSDB_DATABASE = os.environ.get("AZURE_COSMOSDB_DATABASE")
+AZURE_COSMOSDB_CONVERSATIONS_CONTAINER = os.environ.get("AZURE_COSMOSDB_CONVERSATIONS_CONTAINER")
+
+# COSMODB Sessions Mangement Settings
+AZURE_COSMOSDB_SESSIONS_DATABASE = os.environ.get("AZURE_COSMOSDB_SESSIONS_DATABASE")
+AZURE_COSMOSDB_SESSIONS_CONTAINER= os.environ.get("AZURE_COSMOSDB_SESSIONS_CONTAINER")
+AZURE_COSMOSDB_DOC_URL= os.environ.get("AZURE_COSMOSDB_DOC_URL")
+
+# COSMODB Enable Feedback
+AZURE_COSMOSDB_ENABLE_FEEDBACK = os.environ.get("AZURE_COSMOSDB_ENABLE_FEEDBACK", "false").lower() == "true"
+SESSION_NAME = os.environ.get("SESSION_NAME", "tuckbot_session")
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "zi3dfaha7d.snsh5587hmshd")
+
+
+url = AZURE_COSMOSDB_DOC_URL
+key = AZURE_COSMOSDB_ACCOUNT_KEY
+cosmos_client = CosmosClient(url, credential=key)
+
+# Get the database client
+database = cosmos_client.get_database_client(AZURE_COSMOSDB_SESSIONS_DATABASE)
+
+# Get the container client
+container = database.get_container_client(AZURE_COSMOSDB_SESSIONS_CONTAINER)
+
 def create_app():
     app = Quart(__name__)
-    app.secret_key = 'zi3dfaha7d.snsh5587hmshd'  # Replace with your actual secret key
+    app.secret_key = SESSION_SECRET
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+    cosmos_client = init_cosmosdb_client()
+    app.config['SESSION_COOKIE_NAME'] = SESSION_NAME
+    app.session_interface = CosmosDbSessionInterface(cosmos_client, AZURE_COSMOSDB_SESSIONS_DATABASE, AZURE_COSMOSDB_SESSIONS_CONTAINER)
+
     return app
 
 
@@ -84,8 +185,7 @@ SEARCH_ENABLE_IN_DOMAIN = os.environ.get("SEARCH_ENABLE_IN_DOMAIN", "true")
 
 # ACS Integration Settings
 AZURE_SEARCH_SERVICE = os.environ.get("AZURE_SEARCH_SERVICE")
-#AZURE_SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX")
-AZURE_SEARCH_INDEX='mba-index-dev'
+AZURE_SEARCH_INDEX = os.environ.get("AZURE_SEARCH_INDEX")
 AZURE_SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY", None)
 AZURE_SEARCH_USE_SEMANTIC_SEARCH = os.environ.get("AZURE_SEARCH_USE_SEMANTIC_SEARCH", "false")
 AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG = os.environ.get("AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG", "default")
@@ -134,12 +234,7 @@ AZURE_COSMOSDB_MONGO_VCORE_VECTOR_COLUMNS = os.environ.get("AZURE_COSMOSDB_MONGO
 
 SHOULD_STREAM = True if AZURE_OPENAI_STREAM.lower() == "true" else False
 
-# Chat History CosmosDB Integration Settings
-AZURE_COSMOSDB_DATABASE = os.environ.get("AZURE_COSMOSDB_DATABASE")
-AZURE_COSMOSDB_ACCOUNT = os.environ.get("AZURE_COSMOSDB_ACCOUNT")
-AZURE_COSMOSDB_CONVERSATIONS_CONTAINER = os.environ.get("AZURE_COSMOSDB_CONVERSATIONS_CONTAINER")
-AZURE_COSMOSDB_ACCOUNT_KEY = os.environ.get("AZURE_COSMOSDB_ACCOUNT_KEY")
-AZURE_COSMOSDB_ENABLE_FEEDBACK = os.environ.get("AZURE_COSMOSDB_ENABLE_FEEDBACK", "false").lower() == "true"
+
 
 # Elasticsearch Integration Settings
 ELASTICSEARCH_ENDPOINT = os.environ.get("ELASTICSEARCH_ENDPOINT")
@@ -188,8 +283,6 @@ CANVAS_API_KEY = os.environ.get("CANVAS_API_KEY")
 
 # Tuck APIs Key
 TUCK_AZURE_API_KEY = os.environ.get("TUCK_AZURE_API_KEY")
-
-
 
 # Frontend Settings via Environment Variables
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
@@ -352,24 +445,6 @@ def get_configured_data_source():
         logging.debug('current system message')
         logging.debug(AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT)  
         
-
-    # url = 'https://apis.tuck.dartmouth.edu/canvas/enrollments'
-    # headers = {'Authorization': 'Bearer ' + CANVAS_API_KEY}
-    # params = {'action': 'by_user', 'user': 'd1204v3'}
-
-    # response = requests.get(url, headers=headers, params=params)
-
-    # if response.status_code == 200:
-    #     data = response.json()
-    #     courses = [item['course_id'] for item in data]
-
-    #     logging.debug('courses')
-    #     logging.debug(courses)
-    #     # Continue with the rest of the function using the courses data
-    # else:
-    #     print(f'Error: {response.status_code}')
-    #     # Handle error
-
 
     url = 'https://apis.tuck.dartmouth.edu/azure/ai_search'
     headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
@@ -1043,72 +1118,102 @@ async def ensure_cosmos():
 
 
 
-# @bp.route('/api/validate', methods=['GET'])
-# async def validate_ticket():
-#     ticket = request.args.get('ticket')
-#     parsed_url = urlparse(request.url)
-#     service = f"{parsed_url.scheme}://{parsed_url.netloc}/"
-#     # service = request.url
-#     # service = 'http://chatapp.tuck.dartmouth.edu:8080/'
-#     cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
-  
-#     params = {'ticket': ticket, 'service': service, 'format': 'json'}
-#     encoded_params = urlencode(params)
-#     response = requests.get(cas_url, params=encoded_params)
-#     logging.debug(response)
-#     logging.debug(response.text)
-#     if response.status_code == 200:
-#         # Parse the response JSON to check for authentication success
-#         response_json = response.json()
-#         if 'authenticationSuccess' in response_json.get('serviceResponse', {}):
-#             session['user'] = response_json.get('serviceResponse').get('authenticationSuccess').get('attributes').get('netid')[0]
-#             print(session.get('user'))  # This will print netid if the user is authenticated
-#             return jsonify({'status': 'success', 'response_json': response_json}), 200
-#         else:
-#             return jsonify({'status': 'failure', 'response_json': response_json}), 401
-#     else:
-#         print(f'Error: {response.status_code}')
-#         return jsonify({'status': 'failure',  'response_json': response_json}), 500
-
+from azure.cosmos import CosmosClient
 
 @bp.route('/api/validate', methods=['GET'])
 async def validate_ticket():
-    # Check if there is an existing valid user session
-    if 'user' in session:
-        return jsonify({'status': 'success', 'message': 'Existing session'}), 200
-
-    # If there isn't, proceed with the existing ticket validation logic
+    # Define 'ticket' before the 'if' statement
     ticket = request.args.get('ticket')
-    parsed_url = urlparse(request.url)
-    service = f"{parsed_url.scheme}://{parsed_url.netloc}/"
-    cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
-  
-    params = {'ticket': ticket, 'service': service, 'format': 'json'}
-    encoded_params = urlencode(params)
-    response = requests.get(cas_url, params=encoded_params)
-    logging.debug(response)
-    logging.debug(response.text)
-    if response.status_code == 200:
-        # Parse the response JSON to check for authentication success
-        response_json = response.json()
-        if 'authenticationSuccess' in response_json.get('serviceResponse', {}):
-            session['user'] = response_json.get('serviceResponse').get('authenticationSuccess').get('attributes').get('netid')[0]
-            print(session.get('user'))  # This will print netid if the user is authenticated
-            return jsonify({'status': 'success', 'response_json': response_json}), 200
-        else:
-            return jsonify({'status': 'failure', 'response_json': response_json}), 401
-    else:
-        print(f'Error: {response.status_code}')
-        return jsonify({'status': 'failure',  'response_json': response_json}), 500
 
+    sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+    print(f"Session ID: {sid}")  # print sid
+
+    # Initialize Cosmos Client
+    url = AZURE_COSMOSDB_DOC_URL
+    key = AZURE_COSMOSDB_ACCOUNT_KEY
+    client = CosmosClient(url, credential=key)
+    database_name = AZURE_COSMOSDB_SESSIONS_DATABASE
+    
+    database = client.get_database_client(database_name)
+    container_name = AZURE_COSMOSDB_SESSIONS_CONTAINER
+    container = database.get_container_client(container_name)
+
+    # Check if the session exists
+    query = f"SELECT * FROM c WHERE c.id = '{sid}'"
+    print(f"Query: {query}")  # print query
+    items = []
+    for item in container.query_items(
+            query=query,
+            enable_cross_partition_query=True
+        ):
+        items.append(item)
+
+    service = f"{urlparse(request.url).scheme}://{urlparse(request.url).netloc}/"
+    cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
+    params = {'ticket': ticket, 'service': service, 'format': 'json'}
+   
+    if len(items) == 0 or 'user_id' not in items[0]:
+        # If there isn't, proceed with the existing ticket validation logic
+        async with httpx.AsyncClient() as client:
+            response = await client.get(cas_url, params=params)
+
+        if response.status_code != 200:
+            return jsonify({'status': 'failure'}), 400
+
+        response_json = response.json()
+        if 'authenticationSuccess' not in response_json.get('serviceResponse', {}):
+            return jsonify({'status': 'failure'}), 401
+
+        # If ticket is valid, set user netid to session and return success
+        user_netid = response_json['serviceResponse']['authenticationSuccess']['attributes']['netid'][0]
+        session['user'] = user_netid
+        session['user_id'] = user_netid
+        session['message'] = True
+        session['message'] = 'Verified from CAS Ticket'
+
+    return jsonify({
+    'status': 'success', 
+    'session_id': session.sid, 
+    'session_data': {
+        'user': session.get('user'), 
+        'user_id': session.get('user_id'), 
+        'message': session.get('message', 'No message'),
+        'cosmodb_data': items
+    }
+}), 200
 
 
 @bp.route('/api/check_session', methods=['GET'])
 async def check_session():
-    if 'user' in session:
-        return jsonify({'status': 'success'}), 200
-    else:
-        return jsonify({'status': 'failure'}), 401
+    sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
+    print(f"Session ID: {sid}")  # print sid
+
+    # Initialize Cosmos Client
+    url = AZURE_COSMOSDB_DOC_URL
+    key = AZURE_COSMOSDB_ACCOUNT_KEY
+    client = CosmosClient(url, credential=key)
+    database_name = AZURE_COSMOSDB_SESSIONS_DATABASE
+    
+    database = client.get_database_client(database_name)
+    container_name = AZURE_COSMOSDB_SESSIONS_CONTAINER
+    container = database.get_container_client(container_name)
+
+    # Check if the session exists
+    query = f"SELECT * FROM c WHERE c.id = '{sid}'"
+    print(f"Query: {query}")  # print query
+    items = []
+    for item in container.query_items(
+        query=query,
+        enable_cross_partition_query=True
+    ):
+        items.append(item)
+
+    if len(items) == 0:
+        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+
+    stored_session = items
+    print(f"Stored Session: {stored_session}")  # print stored session
+    return jsonify({'status': 'success', 'session': stored_session}), 200
     
 
 
@@ -1121,6 +1226,22 @@ async def set_prompt_template():
     if prompt_type:
         print(f"Prompt Type: {prompt_type}")  # Debug log the promptType
         session['prompt_type'] = prompt_type
+
+    # # Create a new session with static values - leaving for debugging purposes
+    # session['user_id'] = 'd1204v3'
+    # session['user'] = 'd1204v3'
+    # session['authenticated'] = True
+
+    # # Create a new dictionary with only the necessary data from the session
+    # session_data = {
+    #     'sid': session.sid,
+    #     'data': {
+    #         'prompt_type': session.get('prompt_type'),
+    #         'user_id': session.get('user_id'),
+    #         'authenticated': session.get('authenticated')
+    #     }
+    # }
+
     return {'promptType': prompt_type}, 200
 
 
