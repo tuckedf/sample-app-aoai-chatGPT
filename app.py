@@ -5,11 +5,14 @@ import logging
 import uuid
 import requests
 import httpx
+import hashlib
 from dotenv import load_dotenv
 from urllib.parse import urlencode
 from quart import Quart, session, request, jsonify
 from azure.cosmos import CosmosClient, exceptions
 from azure.core.exceptions import ResourceNotFoundError
+from redis import Redis
+
 
 
 
@@ -40,12 +43,7 @@ from quart.sessions import SessionInterface, SessionMixin
 from azure.cosmos import PartitionKey
 from uuid import uuid4
 
-class CosmosDbSession(dict, SessionMixin):
-    def __init__(self, initial=None, sid=None):
-        self.sid = sid or str(uuid4())
-        super().__init__(initial or {})
-
-class CosmosDbSession(dict, SessionMixin):
+class RedisSession(dict, SessionMixin):
     def __init__(self, initial=None, sid=None):
         self.sid = sid or str(uuid4())
         super().__init__(initial or {})
@@ -58,44 +56,38 @@ class CosmosDbSession(dict, SessionMixin):
         super().__delitem__(key)
         self.modified = True
 
-class CosmosDbSessionInterface(SessionInterface):
-    def __init__(self, cosmos_client, database_name, container_name):
-        self.client = cosmos_client.cosmosdb_client
-        self.database = self.client.get_database_client(database_name)
-        self.container_name = container_name
+class RedisSessionInterface(SessionInterface):
+    def __init__(self, redis_client):
+        self.client = redis_client
 
     async def open_session(self, app, request):
         sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
         if sid is None:
             sid = str(uuid4())  # generate a new sid if it's None
-        print(f"Session ID: {sid}")  # print sid
 
-        container = self.database.get_container_client(self.container_name)
+        stored_session = None
+        try:
+            stored_session = self.client.get(sid)
+            if stored_session is not None:
+                stored_session = json.loads(stored_session)
+        except Exception as e:
+            print(f"Error getting session from Redis: {e}")
 
-        # Check if the session exists
-        query = f"SELECT * FROM c WHERE c.id = '{sid}'"
-        print(f"Query: {query}")  # print query
-
-        items = []
-        async for item in container.query_items(query=query):
-            items.append(item)
-
-        if len(items) == 0:
-            print(f"Session not found, creating new session with id: {sid}")
+        if stored_session is None:
             stored_session = {'id': sid}
-            await container.upsert_item(stored_session)
-        else:
-            stored_session = items[0]
-            print(f"Stored Session: {stored_session}")  # print stored session
+            self.client.set(sid, json.dumps(stored_session))
 
-        return CosmosDbSession(initial=stored_session, sid=sid)
+        return RedisSession(initial=stored_session, sid=sid)
 
     async def save_session(self, app, session, response):
-        container = self.database.get_container_client(self.container_name)
         session_dict = {**session, 'id': session.sid}
-        print(f"saving session, sid: {session.sid}, session_dict: {session_dict}")
-        await container.upsert_item(session_dict)
+        try:
+            self.client.set(session.sid, json.dumps(session_dict))
+        except Exception as e:
+            print(f"Error saving session to Redis: {e}")
         response.set_cookie(app.config['SESSION_COOKIE_NAME'], session.sid)
+
+
 
 
 
@@ -132,6 +124,14 @@ AZURE_COSMOSDB_ENABLE_FEEDBACK = os.environ.get("AZURE_COSMOSDB_ENABLE_FEEDBACK"
 SESSION_NAME = os.environ.get("SESSION_NAME", "tuckbot_session")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "zi3dfaha7d.snsh5587hmshd")
 
+#Azure Cache for Redis settings
+REDIS_HOST= os.environ.get("REDIS_HOST")
+REDIS_PORT= os.environ.get("REDIS_PORT")
+REDIS_PASSWORD= os.environ.get("REDIS_PASSWORD")
+
+
+# Initialize Redis client
+redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, ssl=True, ssl_cert_reqs=None)
 
 url = AZURE_COSMOSDB_DOC_URL
 key = AZURE_COSMOSDB_ACCOUNT_KEY
@@ -151,7 +151,8 @@ def create_app():
 
     cosmos_client = init_cosmosdb_client()
     app.config['SESSION_COOKIE_NAME'] = SESSION_NAME
-    app.session_interface = CosmosDbSessionInterface(cosmos_client, AZURE_COSMOSDB_SESSIONS_DATABASE, AZURE_COSMOSDB_SESSIONS_CONTAINER)
+   # Initialize Redis session interface
+    app.session_interface = RedisSessionInterface(redis_client)
 
     return app
 
@@ -449,8 +450,10 @@ def get_configured_data_source():
     url = 'https://apis.tuck.dartmouth.edu/azure/ai_search'
     headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
     params = {'action': 'generate_template', 'user_id': session['user']}
+   
 
     response = requests.get(url, headers=headers, params=params)
+    print(f'Template Data: {response}')
 
     if response.status_code == 200:
         data = response.json()
@@ -782,7 +785,8 @@ def get_frontend_settings():
 @bp.route("/history/generate", methods=["POST"])
 async def add_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -834,7 +838,8 @@ async def add_conversation():
 @bp.route("/history/update", methods=["POST"])
 async def update_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -884,7 +889,8 @@ async def update_conversation():
 @bp.route("/history/message_feedback", methods=["POST"])
 async def update_message():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
     cosmos_conversation_client = init_cosmosdb_client()
 
     ## check request for message_id
@@ -914,7 +920,8 @@ async def update_message():
 async def delete_conversation():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
     
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -947,7 +954,8 @@ async def delete_conversation():
 async def list_conversations():
     offset = request.args.get("offset", 0)
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## make sure cosmos is configured
     cosmos_conversation_client = init_cosmosdb_client()
@@ -968,7 +976,8 @@ async def list_conversations():
 @bp.route("/history/read", methods=["POST"])
 async def get_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1000,7 +1009,8 @@ async def get_conversation():
 @bp.route("/history/rename", methods=["POST"])
 async def rename_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1033,7 +1043,8 @@ async def rename_conversation():
 async def delete_all_conversations():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     # get conversations for user
     try:
@@ -1064,7 +1075,8 @@ async def delete_all_conversations():
 async def clear_messages():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    user_id = authenticated_user['user_principal_id']
+    #user_id = authenticated_user['user_principal_id']
+    user_id = hashlib.md5(session['user'].encode()).hexdigest()
     
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1128,31 +1140,20 @@ async def validate_ticket():
     sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
     print(f"Session ID: {sid}")  # print sid
 
-    # Initialize Cosmos Client
-    url = AZURE_COSMOSDB_DOC_URL
-    key = AZURE_COSMOSDB_ACCOUNT_KEY
-    client = CosmosClient(url, credential=key)
-    database_name = AZURE_COSMOSDB_SESSIONS_DATABASE
-    
-    database = client.get_database_client(database_name)
-    container_name = AZURE_COSMOSDB_SESSIONS_CONTAINER
-    container = database.get_container_client(container_name)
+    # Initialize Redis Client
+    redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, ssl=True)
 
     # Check if the session exists
-    query = f"SELECT * FROM c WHERE c.id = '{sid}'"
-    print(f"Query: {query}")  # print query
-    items = []
-    for item in container.query_items(
-            query=query,
-            enable_cross_partition_query=True
-        ):
-        items.append(item)
+    stored_session = redis_client.get(sid)
+    if stored_session is not None:
+     stored_session = json.loads(stored_session.decode('utf-8'))
+    print(f"Stored Session: {stored_session}")  # print stored session
 
     service = f"{urlparse(request.url).scheme}://{urlparse(request.url).netloc}/"
     cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
     params = {'ticket': ticket, 'service': service, 'format': 'json'}
    
-    if len(items) == 0 or 'user_id' not in items[0]:
+    if stored_session is None or 'user' not in stored_session:
         # If there isn't, proceed with the existing ticket validation logic
         async with httpx.AsyncClient() as client:
             response = await client.get(cas_url, params=params)
@@ -1178,7 +1179,7 @@ async def validate_ticket():
         'user': session.get('user'), 
         'user_id': session.get('user_id'), 
         'message': session.get('message', 'No message'),
-        'cosmodb_data': items
+        'redis_data': stored_session
     }
 }), 200
 
@@ -1188,30 +1189,12 @@ async def check_session():
     sid = request.cookies.get(app.config['SESSION_COOKIE_NAME'])
     print(f"Session ID: {sid}")  # print sid
 
-    # Initialize Cosmos Client
-    url = AZURE_COSMOSDB_DOC_URL
-    key = AZURE_COSMOSDB_ACCOUNT_KEY
-    client = CosmosClient(url, credential=key)
-    database_name = AZURE_COSMOSDB_SESSIONS_DATABASE
-    
-    database = client.get_database_client(database_name)
-    container_name = AZURE_COSMOSDB_SESSIONS_CONTAINER
-    container = database.get_container_client(container_name)
-
     # Check if the session exists
-    query = f"SELECT * FROM c WHERE c.id = '{sid}'"
-    print(f"Query: {query}")  # print query
-    items = []
-    for item in container.query_items(
-        query=query,
-        enable_cross_partition_query=True
-    ):
-        items.append(item)
-
-    if len(items) == 0:
+    stored_session = redis_client.get(sid)
+    if stored_session is None:
         return jsonify({'status': 'error', 'message': 'Session not found'}), 404
 
-    stored_session = items
+    stored_session = json.loads(stored_session.decode('utf-8'))
     print(f"Stored Session: {stored_session}")  # print stored session
     return jsonify({'status': 'success', 'session': stored_session}), 200
     
@@ -1226,21 +1209,6 @@ async def set_prompt_template():
     if prompt_type:
         print(f"Prompt Type: {prompt_type}")  # Debug log the promptType
         session['prompt_type'] = prompt_type
-
-    # # Create a new session with static values - leaving for debugging purposes
-    # session['user_id'] = 'd1204v3'
-    # session['user'] = 'd1204v3'
-    # session['authenticated'] = True
-
-    # # Create a new dictionary with only the necessary data from the session
-    # session_data = {
-    #     'sid': session.sid,
-    #     'data': {
-    #         'prompt_type': session.get('prompt_type'),
-    #         'user_id': session.get('user_id'),
-    #         'authenticated': session.get('authenticated')
-    #     }
-    # }
 
     return {'promptType': prompt_type}, 200
 
