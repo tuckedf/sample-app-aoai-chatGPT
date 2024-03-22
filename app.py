@@ -1149,7 +1149,7 @@ async def validate_ticket():
      stored_session = json.loads(stored_session.decode('utf-8'))
     print(f"Stored Session: {stored_session}")  # print stored session
 
-    service = f"{urlparse(request.url).scheme}://{urlparse(request.url).netloc}/"
+    service = f"https://{urlparse(request.url).netloc}/"
     cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
     params = {'ticket': ticket, 'service': service, 'format': 'json'}
    
