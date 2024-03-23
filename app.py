@@ -6,6 +6,7 @@ import uuid
 import requests
 import httpx
 import hashlib
+import time
 from dotenv import load_dotenv
 from urllib.parse import urlencode
 from quart import Quart, session, request, jsonify
@@ -284,6 +285,8 @@ CANVAS_API_KEY = os.environ.get("CANVAS_API_KEY")
 
 # Tuck APIs Key
 TUCK_AZURE_API_KEY = os.environ.get("TUCK_AZURE_API_KEY")
+CAS_VALIDATION_URL = os.environ.get("CAS_VALIDATION_URL")
+HOST_PROTOCOL = os.environ.get("HOST_PROTOCOL")
 
 # Frontend Settings via Environment Variables
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() == "true"
@@ -1149,8 +1152,8 @@ async def validate_ticket():
      stored_session = json.loads(stored_session.decode('utf-8'))
     print(f"Stored Session: {stored_session}")  # print stored session
 
-    service = f"https://{urlparse(request.url).netloc}/"
-    cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
+    service = f"{HOST_PROTOCOL}://{urlparse(request.url).netloc}/"
+    cas_url = CAS_VALIDATION_URL
     params = {'ticket': ticket, 'service': service, 'format': 'json'}
    
     if stored_session is None or 'user' not in stored_session:
@@ -1234,6 +1237,26 @@ async def generate_title(conversation_messages):
         return title
     except Exception as e:
         return messages[-2]['content']
+    
+    
+#get enrolled courses
+@bp.route('/api/get_course_enrollments', methods=['GET'])
+def get_course_enrollments():
+    user = session.get('user')
+    if not user:
+        return jsonify({'error': 'User not found in session'}), 400
+
+    url = f"https://apis.tuck.dartmouth.edu/canvas/enrollments?action=by_user&user={user}&include[]=course_id&include[]=type"
+    headers = {'Authorization': 'Bearer ' + CANVAS_API_KEY}
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        return jsonify(response.json()), 200
+    else:
+        return jsonify({'error': 'Failed to fetch data from the API'}), response.status_code
+
+
 
 
 app = create_app()

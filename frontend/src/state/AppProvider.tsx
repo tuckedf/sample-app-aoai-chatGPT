@@ -79,20 +79,26 @@ type AppStateProviderProps = {
             dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Loading });
             historyEnsure().then((response) => {
                 if(response?.cosmosDB){
-                    fetchChatHistory()
-                    .then((res) => {
-                        if(res){
-                            dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Success });
-                            dispatch({ type: 'SET_COSMOSDB_STATUS', payload: response });
-                        }else{
+                    // Delay the execution of fetchChatHistory by 3 seconds
+                    const timeoutId = setTimeout(() => {
+                        fetchChatHistory()
+                        .then((res) => {
+                            if(res){
+                                dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Success });
+                                dispatch({ type: 'SET_COSMOSDB_STATUS', payload: response });
+                            }else{
+                                dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Fail });
+                                dispatch({ type: 'SET_COSMOSDB_STATUS', payload: {cosmosDB: false, status: CosmosDBStatus.NotWorking} });
+                            }
+                        })
+                        .catch((err) => {
                             dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Fail });
                             dispatch({ type: 'SET_COSMOSDB_STATUS', payload: {cosmosDB: false, status: CosmosDBStatus.NotWorking} });
-                        }
-                    })
-                    .catch((err) => {
-                        dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Fail });
-                        dispatch({ type: 'SET_COSMOSDB_STATUS', payload: {cosmosDB: false, status: CosmosDBStatus.NotWorking} });
-                    })
+                        })
+                    }, 3000); // 10000 milliseconds = 3 seconds
+
+                    // Clear the timeout when the component is unmounted
+                    return () => clearTimeout(timeoutId);
                 }else{
                     dispatch({ type: 'UPDATE_CHAT_HISTORY_LOADING_STATE', payload: ChatHistoryLoadingState.Fail });
                     dispatch({ type: 'SET_COSMOSDB_STATUS', payload: response });
@@ -123,6 +129,6 @@ type AppStateProviderProps = {
         {children}
       </AppStateContext.Provider>
     );
-  };
+};
 
 
