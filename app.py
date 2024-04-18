@@ -283,7 +283,8 @@ AZURE_MLINDEX_QUERY_TYPE = os.environ.get("AZURE_MLINDEX_QUERY_TYPE")
 # Canvas Integration
 CANVAS_API_KEY = os.environ.get("CANVAS_API_KEY")
 
-# Tuck APIs Key
+# Tuck APIs
+TUCK_AI_SEARCH_TEMPLATE_URL = os.environ.get("TUCK_AI_SEARCH_TEMPLATE_URL")
 TUCK_AZURE_API_KEY = os.environ.get("TUCK_AZURE_API_KEY")
 CAS_VALIDATION_URL = os.environ.get("CAS_VALIDATION_URL")
 HOST_PROTOCOL = os.environ.get("HOST_PROTOCOL")
@@ -450,7 +451,7 @@ def get_configured_data_source():
         logging.debug(AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT)  
         
 
-    url = 'https://apis.tuck.dartmouth.edu/azure/ai_search'
+    url = TUCK_AI_SEARCH_TEMPLATE_URL
     headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
     params = {'action': 'generate_template', 'user_id': session['user']}
    
