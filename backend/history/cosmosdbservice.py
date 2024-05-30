@@ -4,29 +4,32 @@ from azure.cosmos.aio import CosmosClient
 from azure.cosmos import exceptions
   
 class CosmosConversationClient():
-    
     def __init__(self, cosmosdb_endpoint: str, credential: any, database_name: str, container_name: str, enable_message_feedback: bool = False):
+        # All these are in the main block of the __init__ method
         self.cosmosdb_endpoint = cosmosdb_endpoint
         self.credential = credential
         self.database_name = database_name
         self.container_name = container_name
+        self.read_only_container_name = container_name + "_read_only"
         self.enable_message_feedback = enable_message_feedback
-        try:
+
+        try:  # Start of the first try block
             self.cosmosdb_client = CosmosClient(self.cosmosdb_endpoint, credential=credential)
-        except exceptions.CosmosHttpResponseError as e:
-            if e.status_code == 401:
+        except exceptions.CosmosHttpResponseError as e:  # Start of the except block for the first try block
+            if e.status_code == 401:  # Start of the if block in the except block
                 raise ValueError("Invalid credentials") from e
-            else:
+            else:  # Start of the else block in the except block
                 raise ValueError("Invalid CosmosDB endpoint") from e
 
-        try:
+        try:  # Start of the second try block
             self.database_client = self.cosmosdb_client.get_database_client(database_name)
-        except exceptions.CosmosResourceNotFoundError:
+        except exceptions.CosmosResourceNotFoundError:  # Start of the except block for the second try block
             raise ValueError("Invalid CosmosDB database name") 
-        
-        try:
+
+        try:  # Start of the third try block
             self.container_client = self.database_client.get_container_client(container_name)
-        except exceptions.CosmosResourceNotFoundError:
+            self.read_only_container_client = self.database_client.get_container_client(self.read_only_container_name)
+        except exceptions.CosmosResourceNotFoundError:  # Start of the except block for the third try block
             raise ValueError("Invalid CosmosDB container name") 
         
 
@@ -151,6 +154,10 @@ class CosmosConversationClient():
                 return "Conversation not found"
             conversation['updatedAt'] = message['createdAt']
             await self.upsert_conversation(conversation)
+
+            # Add the message to the read_only container
+            await self.read_only_container_client.create_item(body=message)
+
             return resp
         else:
             return False
