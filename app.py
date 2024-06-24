@@ -523,7 +523,7 @@ def get_configured_data_source():
                     "queryType": query_type,
                     "semanticConfiguration": AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG if AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG else "",
                     "roleInformation": AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT,
-                   "filter": query_filter, # Dynamic from template
+                    "filter": query_filter, # Dynamic from template
                   # "filter": filter, # Default 'None' set above.
                     "strictness": int(AZURE_SEARCH_STRICTNESS) if AZURE_SEARCH_STRICTNESS else int(SEARCH_STRICTNESS)
                 }
