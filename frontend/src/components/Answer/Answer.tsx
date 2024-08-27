@@ -87,6 +87,21 @@ export const Answer = ({
         return citationFilename;
     }
 
+    const createCitationTitle = (citation: Citation) => {
+        let citationTitle = "";
+    
+        if (citation.title) {
+            citationTitle = citation.title;
+        } else if (citation.filepath) {
+            const parts = citation.filepath.split('/');
+            citationTitle = parts[parts.length - 1]; // Fallback to filename if title is not available
+        } else {
+            citationTitle = "Untitled Citation";
+        }
+    
+        return citationTitle;
+    }
+
     const onLikeResponseClicked = async () => {
         if (answer.message_id == undefined) return;
 
@@ -257,7 +272,9 @@ export const Answer = ({
                                     aria-label={createCitationFilepath(citation, idx)}
                                 >
                                     <div className={styles.citation}>{idx}</div>
-                                    {createCitationFilepath(citation, idx, true)}
+                                    {createCitationTitle(citation)}
+
+
                                 </span>);
                         })}
                     </div>
