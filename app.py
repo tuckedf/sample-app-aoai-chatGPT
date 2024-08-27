@@ -129,6 +129,7 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "zi3dfaha7d.snsh5587hmshd")
 REDIS_HOST= os.environ.get("REDIS_HOST")
 REDIS_PORT= os.environ.get("REDIS_PORT")
 REDIS_PASSWORD= os.environ.get("REDIS_PASSWORD")
+PROMPT_SUGGESTIONS = os.environ.get("PROMPT_SUGGESTIONS")
 
 
 # Initialize Redis client
@@ -171,6 +172,15 @@ async def assets(path):
     return await send_from_directory("static/assets", path)
 
 load_dotenv()
+
+@bp.route('/api/prompt-suggestions', methods=['GET'])
+async def get_prompt_suggestions():
+    return jsonify({"prompt_suggestions": PROMPT_SUGGESTIONS})
+# Debug settings
+DEBUG = os.environ.get("DEBUG", "false")
+if DEBUG.lower() == "true":
+    logging.basicConfig(level=logging.DEBUG)
+
 
 # Debug settings
 DEBUG = os.environ.get("DEBUG", "false")

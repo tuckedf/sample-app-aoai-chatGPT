@@ -31,6 +31,8 @@ export type ChatMessage = {
     date: string;
     feedback?: Feedback;
     context?: string;
+    sender?: string; // promptitdeas component
+    timestamp?: string; // promptitdeas component
 };
 
 export type Conversation = {

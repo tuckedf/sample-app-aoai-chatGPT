@@ -12,6 +12,7 @@ import DOMPurify from 'dompurify';
 import styles from "./Chat.module.css";
 import Contoso from "../../assets/Contoso.svg";
 import { XSSAllowTags } from "../../constants/xssAllowTags";
+import PromptIdeas from "../../components/PromptIdeas/PromptIdeas";
 
 import {
     ChatMessage,
@@ -40,6 +41,10 @@ const enum messageStatus {
     Processing = "Processing",
     Done = "Done"
 }
+
+interface Props {
+    handleIdeaClick?: (idea: string) => void;
+  }
 
 const Chat = () => {
     const appStateContext = useContext(AppStateContext)
@@ -73,6 +78,7 @@ const Chat = () => {
     }
 
     const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
+
 
     useEffect(() => {
         if (appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.Working  
@@ -493,6 +499,52 @@ const Chat = () => {
 
     }
 
+    const sendMessageToChat = (message: ChatMessage) => {
+        // Implement the logic to send the message to the chat
+        console.log('Message sent to chat:', message);
+    };
+
+    const generateUniqueId = () => {
+        return `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    };
+
+    const onSend = (question: string, id: string) => {
+        if (appStateContext?.state.isCosmosDBAvailable?.cosmosDB) {
+            makeApiRequestWithCosmosDB(question, id);
+        } else {
+            makeApiRequestWithoutCosmosDB(question, id);
+        }
+    };
+    const handleIdeaClick = async (messageText: string) => {
+        const message: ChatMessage = {
+            id: generateUniqueId(),
+            content: messageText,
+            sender: 'currentUser', // Replace with the actual sender
+            timestamp: new Date().toISOString(),
+            role: "",
+            date: ""
+        };
+
+        try {
+            console.log('Idea clicked:', messageText);
+
+            // Depending on your app's state, choose the correct API request function
+            const conversationId = appStateContext?.state.currentChat?.id;
+
+            if (appStateContext?.state.isCosmosDBAvailable?.cosmosDB) {
+                await makeApiRequestWithCosmosDB(messageText, conversationId);
+            } else {
+                await makeApiRequestWithoutCosmosDB(messageText, conversationId);
+            }
+
+            // Optionally, you could update the UI or manage state here after sending the idea
+
+        } catch (error) {
+            console.error('Error handling idea click:', error);
+        }
+    };
+
+
     const clearChat = async () => {
         setClearingChat(true)
         if (appStateContext?.state.currentChat?.id && appStateContext?.state.isCosmosDBAvailable.cosmosDB) {
@@ -651,7 +703,16 @@ const Chat = () => {
                                 />
                                 <h1 className={styles.chatEmptyStateTitle}>{ui?.chat_title}</h1>
                                 <h2 className={styles.chatEmptyStateSubtitle}>{ui?.chat_description}</h2>
+                                {/* Add the PromptIdeas component here */}
+                                <div>
+                                {/* Your chat UI components */}
+                                <PromptIdeas 
+                                    onIdeaClick={handleIdeaClick} 
+                                    conversationId={appStateContext?.state.currentChat?.id}
+                                />
+                                </div>
                             </Stack>
+
                         ) : (
                             <div className={styles.chatMessageStream} style={{ marginBottom: isLoading ? "40px" : "0px" }} role="log">
                                 {messages.map((answer, index) => (
@@ -697,7 +758,6 @@ const Chat = () => {
                                 <div ref={chatMessageStreamEnd} />
                             </div>
                         )}
-
                         <Stack horizontal className={styles.chatInput}>
                             {isLoading && (
                                 <Stack

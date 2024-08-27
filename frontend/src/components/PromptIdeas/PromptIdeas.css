@@ -1,0 +1,106 @@
+/* PromptIdeas.css */
+.prompt-ideas-container {
+    padding: 30px;
+    background-color: #f9f9f9;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.prompt-ideas-container h1 {
+    font-size: 2em;
+    color: #333;
+    margin-bottom: 20px;
+}
+
+.prompt-ideas-container h2 {
+    font-size: 1.5em;
+    color: #555;
+    margin-top: 20px;
+}
+
+.prompt-ideas-container ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.prompt-ideas-container li {
+    margin: 10px 0;
+}
+
+.prompt-ideas-container button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.prompt-ideas-container button:hover {
+    background-color: #0056b3;
+}
+
+.slideshow-container {
+    position: relative;
+    max-width: 100%;
+    margin: auto;
+    overflow: hidden;
+}
+
+.slide {
+    display: none;
+    text-align: center;
+    padding: 20px;
+    background-color: #f1f1f1;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+}
+
+.slide.active {
+    display: block;
+}
+
+.prev, .next {
+    cursor: pointer;
+    position: absolute;
+    top: 50%;
+    width: auto;
+    padding: 16px;
+    margin-top: -22px;
+    color: white;
+    font-weight: bold;
+    font-size: 18px;
+    transition: 0.6s ease;
+    border-radius: 0 3px 3px 0;
+    user-select: none;
+}
+
+.prev {
+    left: 0;
+    border-radius: 3px 0 0 3px;
+}
+
+.next {
+    right: 0;
+    border-radius: 0 3px 3px 0;
+}
+
+.prev:hover, .next:hover {
+    background-color: rgba(0,0,0,0.8);
+}
+
+.button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    border: 2px solid #000; /* Add a solid border */
+    background-color: #f0f0f0;
+    cursor: pointer;
+    border-radius: 5px; /* Optional: Add rounded corners */
+}
+
+.button:hover {
+    background-color: #e0e0e0; /* Optional: Change background color on hover */
+}
