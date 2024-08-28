@@ -25,10 +25,9 @@ import {
     ErrorMessage
 } from "../../api";
 
+// Adjust the path as necessary
 
- // Adjust the path as necessary
-
- interface Idea {
+interface Idea {
     text: string;
     imageUrl: string;
 }
@@ -41,7 +40,6 @@ interface PromptIdea {
 interface PromptIdeasProps {
     onIdeaClick: (idea: string) => void;
     conversationId: string | undefined;  // Add conversationId prop
-
 }
 
 
@@ -51,15 +49,10 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     const abortFuncs = useRef([] as AbortController[]);
     const appStateContext = useContext(AppStateContext); // Use the correct casing for the variable
 
+    // State for current slide index and items per page
     const [currentIndex, setCurrentIndex] = useState(0);
+    let itemsPerPage = 3;
 
-    const handleNext = () => {
-        setCurrentIndex((prevIndex) => (prevIndex + 1) % promptIdeas.length);
-    };
-
-    const handlePrev = () => {
-        setCurrentIndex((prevIndex) => (prevIndex - 1 + promptIdeas.length) % promptIdeas.length);
-    };
 
     const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
 
@@ -84,7 +77,6 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         fetchPromptIdeas();
       }, []);
 
-
     const handleIdeaClick = (idea: string) => {
         // Logic to send the idea to the chat
         console.log('Idea clicked:', idea);
@@ -98,18 +90,19 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         const abortController = new AbortController();
         abortFuncs.current.unshift(abortController);
     
-    // Fetch the prompt suggestions from the backend
-    let question = "generate 3 prompt ideas based on the courses of your documents?";
-    try {
-        const response = await fetch('/api/prompt-suggestions');
-        const data = await response.json();
-        question = data.prompt_suggestions || question;
-        console.log("Prompt suggestions fetched:", question); // Debugging line
-    } catch (error) {
-        console.error("Error fetching prompt suggestions:", error);
-    }
+        // Fetch the prompt suggestions from the backend
+        let question = "generate 3 prompt ideas based on the courses of your documents?";
+        try {
+            const response = await fetch('/api/prompt-suggestions');
+            const data = await response.json();
+            question = data.prompt_suggestions || question;
+            itemsPerPage = data.prompt_suggestions_show_num || 1;
+            console.log("Prompt suggestions fetched and num:", question, itemsPerPage); // Debugging line
+        } catch (error) {
+            console.error("Error fetching prompt suggestions:", error);
+        }
 
-    const userMessage: ChatMessage = {
+        const userMessage: ChatMessage = {
             id: uuid(),
             role: "user",
             content: question,
@@ -193,21 +186,30 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
                     if (!promptIdeasResponse.choices || !promptIdeasResponse.choices[0].messages || !promptIdeasResponse.choices[0].messages[0].content) {
                         throw new Error("The parsed JSON structure is not as expected.");
                     }
-    
-                    const ideas = promptIdeasResponse.choices[0].messages[0].content
-                    .split("\n")
-                    .filter((line: string) => line.startsWith("1.") || line.startsWith("2.") || line.startsWith("3."))
-                    .map((idea: string) => ({
-                        text: idea.substring(3).trim(),
-                        imageUrl: "/assets/mba-operations.jpeg", // Assuming a static image URL for all ideas
-                    }));
+            
+                    const questionString = question; // Replace with your actual question string
 
-                PROMPT_IDEAS = [
-                    {
-                        title: "Course Content",
-                        ideas: ideas
-                    }
-                ];
+                    // Extract the maximum number from the question string
+                    const numbers = questionString.match(/\d+/g);
+                    const maxNumber = numbers ? Math.max(...numbers.map(Number)) : 0;
+
+                    // Create a dynamic filter condition
+                    const startsWithConditions = Array.from({ length: maxNumber }, (_, i) => `${i + 1}.`);
+
+                    const ideas = promptIdeasResponse.choices[0].messages[0].content
+                        .split("\n")
+                        .filter((line: string) => startsWithConditions.some(condition => line.startsWith(condition)))
+                        .map((idea: string) => ({
+                            text: idea.substring(3).trim().replace(/\[doc\d+\]/g, ''), // Remove [doc1], [doc2], etc.
+                            imageUrl: "/assets/mba-operations.jpeg", // Assuming a static image URL for all ideas
+                        }));
+
+                    PROMPT_IDEAS = [
+                        {
+                            title: "Course Content",
+                            ideas: ideas
+                        }
+                    ];
     
                     console.log("PROMPT_IDEAS: ", PROMPT_IDEAS); // Debugging line
                 } catch (error) {
@@ -223,6 +225,9 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     
         return PROMPT_IDEAS;
     };
+
+    // Example usage of itemsPerPage
+    console.log("Items per page:", itemsPerPage);
 
     let assistantMessage = {} as ChatMessage
     let toolMessage = {} as ChatMessage
@@ -256,43 +261,41 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         // Example: You might have a function in your chat component to handle this
         // chatComponent.sendMessage(message);
     };
-    
 
-    if (error) {
-        return <div>Error: {error}</div>;
-    }
+    const handleNext = () => {
+        setCurrentIndex((prevIndex) => 
+            (prevIndex + 1) % Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)
+        );
+    };
+
+    const handlePrev = () => {
+        setCurrentIndex((prevIndex) => 
+            (prevIndex - 1 + Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)) % Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)
+        );
+    };
+
+    const startIndex = currentIndex * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const currentIdeas = promptIdeas.flatMap(category => category.ideas).slice(startIndex, endIndex);
 
     return (
-        <div>
-            <h1>Prompt Suggestions</h1>
-            <div className="slideshow-container">
-            {/* <button className="prev" onClick={handlePrev}>&#10094;</button>
-            <button className="next" onClick={handleNext}>&#10095;</button> */}
-                {promptIdeas.map((category, index) => (
-                    <div key={index} className={`slide ${index === currentIndex ? 'active' : ''}`}>
-                        <h2>{category.title}</h2>
-                        <ul>
-                            {category.ideas.map((idea, idx) => (
-                                <li key={idx}>
-                                    <CustomButton
-                                        onIdeaClick={onIdeaClick}
-                                        conversationId={conversationId}
-                                    >
-                                        {idea.text}
-                                    </CustomButton>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))}
-            </div>
+    <div className="prompt-ideas-container">
+        <div className="slideshow-container">
+             <button className="prev" onClick={handlePrev}>&#10094;</button>
+            <button className="next" onClick={handleNext}>&#10095;</button> 
+            {currentIdeas.map((idea, idx) => (
+                <div className="slide active" key={idx}>
+                    <CustomButton
+                        onIdeaClick={onIdeaClick}
+                        conversationId={conversationId}
+                    >
+                        {idea.text}
+                    </CustomButton>
+                </div>
+            ))}
         </div>
+    </div>
     );
-};
-
-// Define the onIdeaClick function outside of the PromptIdeas component
-// const onIdeaClick = (idea: string) => {
-//     chatComponent.sendMessage(idea);
-// };
+}
 
 export default PromptIdeas;

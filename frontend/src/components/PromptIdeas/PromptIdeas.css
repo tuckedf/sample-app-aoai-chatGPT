@@ -1,9 +1,14 @@
 /* PromptIdeas.css */
 .prompt-ideas-container {
-    padding: 30px;
+    padding: 5px;
     background-color: #f9f9f9;
     border-radius: 8px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    max-width: 800px;
+    width: 800px; /* Fix the width */
+    height: 100%; /* Fix the height */
+    margin: auto;
+    overflow: hidden; /* Hide overflow */
 }
 
 .prompt-ideas-container h1 {
@@ -28,8 +33,8 @@
 }
 
 .prompt-ideas-container button {
-    background-color: #007bff;
-    color: white;
+    background-color: #ffffff; /* Change background to black */
+    color: rgb(0, 0, 0); /* Ensure text color is white for contrast */
     border: none;
     padding: 10px 20px;
     border-radius: 5px;
@@ -37,8 +42,9 @@
     transition: background-color 0.3s;
 }
 
+
 .prompt-ideas-container button:hover {
-    background-color: #0056b3;
+    background-color: #babbbc;
 }
 
 .slideshow-container {
@@ -53,7 +59,7 @@
     text-align: center;
     padding: 20px;
     background-color: #f1f1f1;
-    border: 1px solid #ddd;
+    border: 0px solid #ddd;
     border-radius: 5px;
 }
 
@@ -68,11 +74,11 @@
     width: auto;
     padding: 16px;
     margin-top: -22px;
-    color: white;
+    color: rgb(0, 0, 0);
     font-weight: bold;
     font-size: 18px;
     transition: 0.6s ease;
-    border-radius: 0 3px 3px 0;
+    border-radius: 0 0px 0px 0;
     user-select: none;
 }
 
@@ -95,12 +101,13 @@
     align-items: center;
     justify-content: center;
     padding: 10px;
-    border: 2px solid #000; /* Add a solid border */
-    background-color: #f0f0f0;
+    border: 2px solid #000; /* Solid black border */
+    background-color: #000; /* Change background to black */
+    color: white; /* Ensure text color is white for contrast */
     cursor: pointer;
     border-radius: 5px; /* Optional: Add rounded corners */
 }
 
 .button:hover {
-    background-color: #e0e0e0; /* Optional: Change background color on hover */
+    background-color: #333; /* Slightly lighter black on hover */
 }

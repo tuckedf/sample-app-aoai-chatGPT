@@ -130,6 +130,7 @@ REDIS_HOST= os.environ.get("REDIS_HOST")
 REDIS_PORT= os.environ.get("REDIS_PORT")
 REDIS_PASSWORD= os.environ.get("REDIS_PASSWORD")
 PROMPT_SUGGESTIONS = os.environ.get("PROMPT_SUGGESTIONS")
+PROMPT_SUGGESTIONS_SHOW_NUM = os.environ.get("PROMPT_SUGGESTIONS_SHOW_NUM")
 
 
 # Initialize Redis client
@@ -175,7 +176,10 @@ load_dotenv()
 
 @bp.route('/api/prompt-suggestions', methods=['GET'])
 async def get_prompt_suggestions():
-    return jsonify({"prompt_suggestions": PROMPT_SUGGESTIONS})
+    return jsonify({
+        "prompt_suggestions": PROMPT_SUGGESTIONS,
+        "prompt_suggestions_show_num": PROMPT_SUGGESTIONS_SHOW_NUM
+    })
 # Debug settings
 DEBUG = os.environ.get("DEBUG", "false")
 if DEBUG.lower() == "true":
