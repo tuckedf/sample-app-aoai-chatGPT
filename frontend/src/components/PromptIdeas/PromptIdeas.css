@@ -6,7 +6,7 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     max-width: 800px;
     width: 800px; /* Fix the width */
-    height: 100%; /* Fix the height */
+    height: 300px; /* Fix the height */
     margin: auto;
     overflow: hidden; /* Hide overflow */
 }

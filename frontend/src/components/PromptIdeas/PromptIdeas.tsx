@@ -84,6 +84,13 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         sendToChat(idea);
     };
 
+    useEffect(() => {
+        const interval = setInterval(() => {
+            handleNext();
+        }, 10000); // Change slide every 3 seconds
+        return () => clearInterval(interval);
+    }, [currentIndex]);
+
     const generatePromptIdeas = async (conversationId?: string) => {
         console.log("generatePromptIdeas called with conversationId:", conversationId); // Debugging line
     
@@ -263,14 +270,19 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     };
 
     const handleNext = () => {
-        setCurrentIndex((prevIndex) => 
-            (prevIndex + 1) % Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)
+        setCurrentIndex((prevIndex) =>
+            prevIndex === Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage) - 1
+                ? 0
+                : prevIndex + 1
         );
     };
+    
 
     const handlePrev = () => {
-        setCurrentIndex((prevIndex) => 
-            (prevIndex - 1 + Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)) % Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage)
+        setCurrentIndex((prevIndex) =>
+            prevIndex === 0
+                ? Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage) - 1
+                : prevIndex - 1
         );
     };
 
