@@ -6,9 +6,10 @@
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     max-width: 800px;
     width: 800px; /* Fix the width */
-    height: 300px; /* Fix the height */
+    height: 150px; /* Fix the height */
     margin: auto;
     overflow: hidden; /* Hide overflow */
+    align-items: center; /* Center vertically */
 }
 
 .prompt-ideas-container h1 {
@@ -52,6 +53,8 @@
     max-width: 100%;
     margin: auto;
     overflow: hidden;
+    display: flex;
+    transition: transform 0.5s ease-in-out;
 }
 
 .slide {
@@ -61,6 +64,16 @@
     background-color: #f1f1f1;
     border: 0px solid #ddd;
     border-radius: 5px;
+}
+
+.slideshow-container {
+    position: relative;
+    overflow: hidden;
+}
+
+.slide {
+    display: none;
+    text-align: center;
 }
 
 .slide.active {
@@ -74,11 +87,11 @@
     width: auto;
     padding: 16px;
     margin-top: -22px;
-    color: rgb(0, 0, 0);
+    color: white;
     font-weight: bold;
     font-size: 18px;
     transition: 0.6s ease;
-    border-radius: 0 0px 0px 0;
+    border-radius: 0 3px 3px 0;
     user-select: none;
 }
 
@@ -89,7 +102,7 @@
 
 .next {
     right: 0;
-    border-radius: 0 3px 3px 0;
+    border-radius: 3px 0 0 3px;
 }
 
 .prev:hover, .next:hover {
@@ -110,4 +123,51 @@
 
 .button:hover {
     background-color: #333; /* Slightly lighter black on hover */
+}
+
+.pause {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 20px;
+    background-color: #333;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+.dots-container {
+    text-align: center;
+    padding: 10px 0;
+}
+
+.dot {
+    cursor: pointer;
+    height: 15px;
+    width: 15px;
+    margin: 0 2px;
+    background-color: #bbb;
+    border-radius: 50%;
+    display: inline-block;
+    transition: background-color 0.6s ease;
+}
+
+.dot.active {
+    background-color: #717171;
+}
+.pause-button {
+    margin-left: 20px;
+    padding: 8px 16px;
+    background-color: #333;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.pause-button:hover {
+    background-color: #555;
 }
