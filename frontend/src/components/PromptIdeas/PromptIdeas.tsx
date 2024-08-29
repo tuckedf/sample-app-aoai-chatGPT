@@ -155,6 +155,9 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
             messages: [...conversation.messages.filter((answer) => answer.role !== error)]
         };
     
+        // Log the request object
+        console.log("Request to conversationApi:", request);
+
         let result = {} as ChatResponse;
         let PROMPT_IDEAS: PromptIdea[] = [];
         try {
@@ -307,6 +310,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     const startIndex = currentIndex * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     const currentIdeas = promptIdeas.flatMap(category => category.ideas).slice(startIndex, endIndex);
+    const totalPages = Math.ceil(promptIdeas.flatMap(category => category.ideas).length / itemsPerPage);
 
     return (
         <div className="prompt-ideas-container">
@@ -332,13 +336,13 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
                     </div>
                     <div className="controls-container">
                         <div className="dots-container">
-                            {promptIdeas.flatMap(category => category.ideas).map((_, idx) => (
-                                <span
-                                    key={idx}
-                                    className={`dot ${currentIndex === Math.floor(idx / itemsPerPage) ? "active-dot" : ""}`}
-                                    onClick={() => setCurrentIndex(Math.floor(idx / itemsPerPage))}
-                                />
-                            ))}
+                        {Array.from({ length: totalPages }).map((_, idx) => (
+                            <span
+                                key={idx}
+                                className={`dot ${idx === currentIndex ? "active" : ""}`}
+                                onClick={() => setCurrentIndex(idx)}
+                            ></span>
+                        ))}
                         </div>
                         <button className="pause-button" onClick={togglePause}>
                         {isPaused ? '▶' : '⏸'}
