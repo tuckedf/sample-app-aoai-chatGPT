@@ -3,10 +3,10 @@
     padding: 5px;
     background-color: #f9f9f9;
     border-radius: 8px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 8px #0000001a;
     max-width: 800px;
     width: 800px; /* Fix the width */
-    height: 150px; /* Fix the height */
+    height: 210px; /* Fix the height */
     margin: auto;
     overflow: hidden; /* Hide overflow */
     align-items: center; /* Center vertically */
@@ -80,33 +80,38 @@
     display: block;
 }
 
+/* Make the buttons square and transparent */
 .prev, .next {
+    background-color: transparent;
+    border: none;
+    color: black;
+    font-size: 24px; /* Adjust the size as needed */
     cursor: pointer;
-    position: absolute;
-    top: 50%;
-    width: auto;
-    padding: 16px;
-    margin-top: -22px;
-    color: white;
-    font-weight: bold;
-    font-size: 18px;
-    transition: 0.6s ease;
-    border-radius: 0 3px 3px 0;
-    user-select: none;
-}
-
-.prev {
-    left: 0;
-    border-radius: 3px 0 0 3px;
-}
-
-.next {
-    right: 0;
-    border-radius: 3px 0 0 3px;
+    width: 40px; /* Make the button square */
+    height: 40px; /* Make the button square */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5; /* Slightly transparent */
 }
 
 .prev:hover, .next:hover {
-    background-color: rgba(0,0,0,0.8);
+    opacity: 1; /* Fully opaque when hovered */
+}
+
+/* Optionally, adjust positioning to ensure they don't overlap with other elements */
+.prev {
+    position: absolute;
+    top: 50%;
+    left: 0px;
+    transform: translateY(-50%);
+}
+
+.next {
+    position: absolute;
+    top: 50%;
+    right: 0px;
+    transform: translateY(-50%);
 }
 
 .button {
@@ -138,36 +143,73 @@
     border-radius: 5px;
 }
 
+.controls-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 10px;
+}
+
 .dots-container {
-    text-align: center;
-    padding: 10px 0;
+    display: flex;
+    align-items: center;
 }
 
 .dot {
-    cursor: pointer;
-    height: 15px;
-    width: 15px;
-    margin: 0 2px;
+    height: 10px;
+    width: 10px;
+    margin: 0 4px;
     background-color: #bbb;
     border-radius: 50%;
     display: inline-block;
-    transition: background-color 0.6s ease;
+    cursor: pointer;
 }
 
-.dot.active {
+.active-dot {
     background-color: #717171;
 }
+
 .pause-button {
-    margin-left: 20px;
-    padding: 8px 16px;
-    background-color: #333;
-    color: white;
+    margin-left: 15px; /* Add some space between dots and pause button */
+    background-color: transparent;
     border: none;
-    border-radius: 5px;
     cursor: pointer;
-    transition: background-color 0.3s ease;
+    font-size: 18px; /* Adjust size as needed */
+    color: black;
 }
 
 .pause-button:hover {
-    background-color: #555;
+    color: #000;
+}
+
+.loading-message {
+    text-align: center;
+    font-size: 18px;
+    color: #333;
+    margin-top: 20px;
+}
+
+.progress-bar-container {
+    width: 50%; /* Set width to 50% */
+    margin: 20px auto; /* Center the container horizontally */
+    background-color: #f3f3f3;
+    height: 10px;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    width: 0;
+    height: 100%;
+    background-color: #4caf50;
+    animation: loadProgressBar 3s linear infinite;
+}
+
+@keyframes loadProgressBar {
+    0% {
+        width: 0%;
+    }
+    100% {
+        width: 100%;
+    }
 }

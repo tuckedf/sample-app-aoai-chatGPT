@@ -48,6 +48,9 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     const [error, setError] = useState<string | null>(null);
     const abortFuncs = useRef([] as AbortController[]);
     const appStateContext = useContext(AppStateContext); // Use the correct casing for the variable
+    const [isPaused, setIsPaused] = useState(false);
+    const intervalRef = useRef<number | null>(null);
+    const [loading, setLoading] = useState(true); // State to track loading
 
     // State for current slide index and items per page
     const [currentIndex, setCurrentIndex] = useState(0);
@@ -60,6 +63,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         console.log('useEffect called'); // Debugging line
     
         const fetchPromptIdeas = async () => {
+            setLoading(true);  // Start loading
           try {
             console.log('Fetching prompt ideas'); // Debugging line
             const response = await generatePromptIdeas(); // Call the imported function
@@ -71,6 +75,8 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
             }
           } catch (error) {
             console.error('Error fetching prompt ideas:', error);
+          } finally {
+            setLoading(false);  // End loading
           }
         };
     
@@ -85,11 +91,23 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     };
 
     useEffect(() => {
-        const interval = setInterval(() => {
-            handleNext();
-        }, 10000); // Change slide every 3 seconds
-        return () => clearInterval(interval);
-    }, [currentIndex]);
+        if (!isPaused && !loading) {
+            intervalRef.current = window.setInterval(handleNext, 15000); // Change slide every 15 seconds
+        } else if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+        }
+
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, [currentIndex, isPaused, loading]);
+
+    const togglePause = () => {
+        setIsPaused(prev => !prev);
+    };
+
 
     const generatePromptIdeas = async (conversationId?: string) => {
         console.log("generatePromptIdeas called with conversationId:", conversationId); // Debugging line
@@ -291,22 +309,44 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     const currentIdeas = promptIdeas.flatMap(category => category.ideas).slice(startIndex, endIndex);
 
     return (
-    <div className="prompt-ideas-container">
-        <div className="slideshow-container">
-             <button className="prev" onClick={handlePrev}>&#10094;</button>
-            <button className="next" onClick={handleNext}>&#10095;</button> 
-            {currentIdeas.map((idea, idx) => (
-                <div className="slide active" key={idx}>
-                    <CustomButton
-                        onIdeaClick={onIdeaClick}
-                        conversationId={conversationId}
-                    >
-                        {idea.text}
-                    </CustomButton>
+        <div className="prompt-ideas-container">
+            {loading ? (
+                <div className="progress-bar-container">
+                    <div className="progress-bar"></div>
                 </div>
-            ))}
+            ) : (
+                <>
+                    <div className="slideshow-container">
+                        <button className="prev" onClick={handlePrev}>&#10094;</button>
+                        <button className="next" onClick={handleNext}>&#10095;</button>
+                        {currentIdeas.map((idea, idx) => (
+                            <div className="slide active" key={idx}>
+                                <CustomButton
+                                    onIdeaClick={onIdeaClick}
+                                    conversationId={conversationId}
+                                >
+                                    {idea.text}
+                                </CustomButton>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="controls-container">
+                        <div className="dots-container">
+                            {promptIdeas.flatMap(category => category.ideas).map((_, idx) => (
+                                <span
+                                    key={idx}
+                                    className={`dot ${currentIndex === Math.floor(idx / itemsPerPage) ? "active-dot" : ""}`}
+                                    onClick={() => setCurrentIndex(Math.floor(idx / itemsPerPage))}
+                                />
+                            ))}
+                        </div>
+                        <button className="pause-button" onClick={togglePause}>
+                        {isPaused ? '▶' : '⏸'}
+                        </button>
+                    </div>
+                </>
+            )}
         </div>
-    </div>
     );
 }
 
