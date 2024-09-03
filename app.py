@@ -1,5 +1,6 @@
 import copy
 import json
+from logging.handlers import RotatingFileHandler
 import os
 import logging
 import uuid
@@ -158,6 +159,22 @@ def create_app():
     app.session_interface = RedisSessionInterface(redis_client)
 
     return app
+
+# Configure logging
+log_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+log_file = 'app.log'
+
+file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
+file_handler.setFormatter(log_formatter)
+file_handler.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(log_formatter)
+console_handler.setLevel(logging.INFO)
+
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(file_handler)
+logging.getLogger().addHandler(console_handler)
 
 
 @bp.route("/")
@@ -731,7 +748,15 @@ def prepare_model_args(request_body):
     
     return model_args
 
-async def send_chat_request(request):
+async def send_chat_request(request, model):
+        # This is a placeholder implementation
+    if model == 'chatgpt4':
+        # Send request to ChatGPT 4.0
+        pass
+    else:
+        # Send request to ChatGPT 3.5
+        pass
+    
     model_args = prepare_model_args(request)
     print(f"Model arguments: {model_args}")  # Print the model arguments
 
@@ -745,14 +770,14 @@ async def send_chat_request(request):
 
     return response
 
-async def complete_chat_request(request_body):
-    response = await send_chat_request(request_body)
+async def complete_chat_request(request_body, model):
+    response = await send_chat_request(request_body, model)
     history_metadata = request_body.get("history_metadata", {})
 
     return format_non_streaming_response(response, history_metadata)
 
-async def stream_chat_request(request_body):
-    response = await send_chat_request(request_body)
+async def stream_chat_request(request_body, model):
+    response = await send_chat_request(request_body, model)
     history_metadata = request_body.get("history_metadata", {})
 
     async def generate():
@@ -763,14 +788,15 @@ async def stream_chat_request(request_body):
 
 async def conversation_internal(request_body):
     try:
+        model = request_body.get('model', 'chatgpt35')  # Default to chatgpt-3.5 if not specified
         if SHOULD_STREAM:
-            result = await stream_chat_request(request_body)
+            result = await stream_chat_request(request_body, model)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
             return response
         else:
-            result = await complete_chat_request(request_body)
+            result = await complete_chat_request(request_body, model)
             return jsonify(result)
     
     except Exception as ex:
@@ -786,7 +812,10 @@ async def conversation():
     if not request.is_json:
         return jsonify({"error": "request must be json"}), 415
     request_json = await request.get_json()
-    
+
+    # Log the request JSON
+    logging.info(f"Conversation Request - ID: {request_json.get('id', 'N/A')} - Payload: {request_json}")
+        
     return await conversation_internal(request_json)
 
 @bp.route("/frontend_settings", methods=["GET"])  

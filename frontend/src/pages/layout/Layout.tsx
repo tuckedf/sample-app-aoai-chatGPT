@@ -8,6 +8,8 @@ import { HistoryButton, ShareButton } from "../../components/common/Button";
 import { AppStateContext } from "../../state/AppProvider";
 import { CosmosDBStatus } from "../../api";
 import { IconButton, Text } from "@fluentui/react";
+import ModelSwitch from '../../components/ModelSwitch/ModelSwitch';
+import { Toggle } from '@fluentui/react';
 
 
 const Layout = () => {
@@ -21,7 +23,24 @@ const Layout = () => {
     const ui = appStateContext?.state.frontendSettings?.ui;
     const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState<boolean>(false);
     const [isTutorMode, setIsTutorMode] = useState<boolean>(false);
+    const [model, setModel] = useState<string>(""); // Add this line
 
+
+    const handleModelChange = (newModel: string) => {
+        setModel(newModel);
+    };
+
+    const handleSubmit = async () => {
+        const response = await fetch('/conversation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ model, /* other request data */ }),
+        });
+        const data = await response.json();
+        // Handle the response data
+    };
 
     const handleSettingsClick = () => {
         console.log('Settings button clicked');
@@ -115,6 +134,9 @@ const Layout = () => {
                             onClick={handleSettingsClick}
                         />
                         <Text variant="large">Settings</Text>
+                        <div className="main-screen">
+                        <ModelSwitch onModelChange={handleModelChange} />
+                    </div>
                     </Stack>
                     {ui?.show_share_button &&
                         <Stack horizontal tokens={{ childrenGap: 4 }}>
