@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@fluentui/react": "^8.120.7",
     "dotenv": "^16.4.5"
   },
   "devDependencies": {
