@@ -13,6 +13,7 @@ import styles from "./Chat.module.css";
 import Contoso from "../../assets/Contoso.svg";
 import { XSSAllowTags } from "../../constants/xssAllowTags";
 import PromptIdeas from "../../components/PromptIdeas/PromptIdeas";
+import RealTimeVision from '../../components/RealTimeVision/RealTimeVision';
 
 import {
     ChatMessage,
@@ -695,22 +696,28 @@ const Chat = () => {
                 <Stack horizontal className={styles.chatRoot}>
                     <div className={styles.chatContainer}>
                         {!messages || messages.length < 1 ? (
-                            <Stack className={styles.chatEmptyState}>
-                                <img
-                                    src={ui?.chat_logo ? ui.chat_logo : Contoso}
-                                    className={styles.chatIcon}
-                                    aria-hidden="true"
-                                />
-                                <h1 className={styles.chatEmptyStateTitle}>{ui?.chat_title}</h1>
-                                <h2 className={styles.chatEmptyStateSubtitle}>{ui?.chat_description}</h2>
-                                {/* Add the PromptIdeas component here */}
-                                <div>
-                                {/* Your chat UI components */}
-                                <PromptIdeas 
-                                    onIdeaClick={handleIdeaClick} 
-                                    conversationId={appStateContext?.state.currentChat?.id}
-                                />
-                                </div>
+                            <Stack>
+                                <Stack className={styles.chatEmptyState}>
+                                    <img
+                                        src={ui?.chat_logo ? ui.chat_logo : Contoso}
+                                        className={styles.chatIcon}
+                                        aria-hidden="true"
+                                    />
+                                    <h1 className={styles.chatEmptyStateTitle}>{ui?.chat_title}</h1>
+                                    <h2 className={styles.chatEmptyStateSubtitle}>{ui?.chat_description}</h2>
+                                    {/* Add the PromptIdeas component here */}
+                                    <div>
+                                    {/* Your chat UI components */}
+                                    <PromptIdeas 
+                                        onIdeaClick={handleIdeaClick} 
+                                        conversationId={appStateContext?.state.currentChat?.id}
+                                    />
+                                    </div>
+                                </Stack>
+                                <Stack>
+                                    {/* Other components */}
+                                    <RealTimeVision />
+                                </Stack>
                             </Stack>
 
                         ) : (
