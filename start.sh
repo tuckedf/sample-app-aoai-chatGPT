@@ -26,7 +26,7 @@ echo ""
 echo "Starting backend"
 echo ""
 #./.venv/bin/python -m quart run --port=50505 --host=127.0.0.1 --reload
-./.venv/bin/python -m quart run --port=8080 --host=127.0.0.1 --reload
+./.venv/bin/python -m quart run --port=8080 --host=0.0.0.0 --reload
 if [ $? -ne 0 ]; then
     echo "Failed to start backend"
     exit $?

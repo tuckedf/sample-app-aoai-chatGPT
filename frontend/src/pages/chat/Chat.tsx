@@ -14,6 +14,7 @@ import Contoso from "../../assets/Contoso.svg";
 import { XSSAllowTags } from "../../constants/xssAllowTags";
 import PromptIdeas from "../../components/PromptIdeas/PromptIdeas";
 import RealTimeVision from '../../components/RealTimeVision/RealTimeVision';
+import CameraModule from "../../components/CameraModule/CameraModule";
 
 import {
     ChatMessage,
@@ -42,6 +43,17 @@ const enum messageStatus {
     Processing = "Processing",
     Done = "Done"
 }
+
+// Import environment variables
+declare const process: {
+    env: {
+      REACT_APP_NODE_ENV: string;
+    };
+  };
+  
+  const isProduction = process.env.REACT_APP_NODE_ENV === 'production';
+
+
 
 interface Props {
     handleIdeaClick?: (idea: string) => void;
@@ -80,6 +92,9 @@ const Chat = () => {
 
     const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
 
+    useEffect(() => {
+        console.log('Chat component mounted');
+    }, []);
 
     useEffect(() => {
         if (appStateContext?.state.isCosmosDBAvailable?.status !== CosmosDBStatus.Working  
@@ -92,6 +107,7 @@ const Chat = () => {
                 subtitle: subtitle
             })
             toggleErrorDialog();
+            console.log('History loaded:');
         }
     }, [appStateContext?.state.isCosmosDBAvailable]);
 
@@ -112,7 +128,7 @@ const Chat = () => {
             return;
         }
         const userInfoList = await getUserInfo();
-        if (userInfoList.length === 0 && window.location.hostname !== "127.0.0.1") {
+        if (userInfoList.length === 0 && window.location.hostname !== "0.0.0.0") {
             setShowAuthMessage(true);
         }
         else {
@@ -706,13 +722,13 @@ const Chat = () => {
                                     <h1 className={styles.chatEmptyStateTitle}>{ui?.chat_title}</h1>
                                     <h2 className={styles.chatEmptyStateSubtitle}>{ui?.chat_description}</h2>
                                     {/* Add the PromptIdeas component here */}
-                                    <div>
+                                    {/* <div> */}
                                     {/* Your chat UI components */}
-                                    <PromptIdeas 
+                                    {/* <PromptIdeas 
                                         onIdeaClick={handleIdeaClick} 
                                         conversationId={appStateContext?.state.currentChat?.id}
-                                    />
-                                    </div>
+                                    /> */}
+                                    {/* </div> */}
                                 </Stack>
                                 <Stack>
                                     {/* Other components */}

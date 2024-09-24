@@ -7,6 +7,7 @@ import './PromptIdeas.css'
 import CustomButton from './customButton';
 import styles from './PromptSuggestions.module.css';
 import { AppStateContext } from "../../state/AppProvider";
+import { log } from '../../logger'; // Import the logging utility
 
 import {
     ChatMessage,
@@ -60,14 +61,15 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
 
     useEffect(() => {
-        console.log('useEffect called'); // Debugging line
+        log('useEffect called'); // Debugging line
+        console.log('REACT_APP_DEBUG:', process.env.REACT_APP_DEBUG); // Debugging line
     
         const fetchPromptIdeas = async () => {
             setLoading(true);  // Start loading
           try {
-            console.log('Fetching prompt ideas'); // Debugging line
+            log('Fetching prompt ideas'); // Debugging line
             const response = await generatePromptIdeas(); // Call the imported function
-            console.log('API Response:', response); // Debugging line
+            log('API Response:', response); // Debugging line
             if (response && response) {
               setPromptIdeas(response);
             } else {
@@ -85,7 +87,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
 
     const handleIdeaClick = (idea: string) => {
         // Logic to send the idea to the chat
-        console.log('Idea clicked:', idea);
+        log('Idea clicked:', idea);
         // Example: You can use a function to send the idea to the chat
         sendToChat(idea);
     };
@@ -110,7 +112,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
 
 
     const generatePromptIdeas = async (conversationId?: string) => {
-        console.log("generatePromptIdeas called with conversationId:", conversationId); // Debugging line
+        log("generatePromptIdeas called with conversationId:", conversationId); // Debugging line
     
         const abortController = new AbortController();
         abortFuncs.current.unshift(abortController);
@@ -122,7 +124,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
             const data = await response.json();
             question = data.prompt_suggestions || question;
             itemsPerPage = data.prompt_suggestions_show_num || 1;
-            console.log("Prompt suggestions fetched and num:", question, itemsPerPage); // Debugging line
+            log("Prompt suggestions fetched and num:", question, itemsPerPage); // Debugging line
         } catch (error) {
             console.error("Error fetching prompt suggestions:", error);
         }
@@ -156,7 +158,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
         };
     
         // Log the request object
-        console.log("Request to conversationApi:", request);
+        log("Request to conversationApi:", request);
 
         let result = {} as ChatResponse;
         let PROMPT_IDEAS: PromptIdea[] = [];
@@ -198,7 +200,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
                                 console.error(e);
                                 throw e;
                             } else {
-                                console.log("Incomplete message. Continuing...");
+                                log("Incomplete message. Continuing...");
                             }
                         }
                     });
@@ -239,7 +241,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
                         }
                     ];
     
-                    console.log("PROMPT_IDEAS: ", PROMPT_IDEAS); // Debugging line
+                    log("PROMPT_IDEAS: ", PROMPT_IDEAS); // Debugging line
                 } catch (error) {
                     console.error("Error generating prompt ideas:", error);
                 }
@@ -255,7 +257,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
     };
 
     // Example usage of itemsPerPage
-    console.log("Items per page:", itemsPerPage);
+    log("Items per page:", itemsPerPage);
 
     let assistantMessage = {} as ChatMessage
     let toolMessage = {} as ChatMessage
@@ -285,7 +287,7 @@ const PromptIdeas: React.FC<PromptIdeasProps> = ({ onIdeaClick, conversationId }
 
     const sendToChat = (message: string) => {
         // Implement the logic to send the message to the chat
-        console.log('Sending to chat:', message);
+        log('Sending to chat:', message);
         // Example: You might have a function in your chat component to handle this
         // chatComponent.sendMessage(message);
     };

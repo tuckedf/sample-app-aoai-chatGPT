@@ -16,6 +16,16 @@ function isLoggedIn() {
    // return sessionStorage.getItem('user') !== null;
       return false;
 }
+
+// Import environment variables
+declare const process: {
+    env: {
+      DEBUG: string;
+    };
+  };
+  
+  const isProduction = process.env.DEBUG === 'false';
+
 /*
 export default function App() {
     // Check for service ticket in the URL on component mount
@@ -45,33 +55,35 @@ export default function App() {
 
     */
     export default function App() {
-        useEffect(() => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const ticket = urlParams.get('ticket');
+        // useEffect(() => {
+        //     const urlParams = new URLSearchParams(window.location.search);
+        //     const ticket = urlParams.get('ticket');
+        //     //const isDebugMode = process.env.DEBUG === 'development';
     
-            // Always call /api/validate, whether or not a ticket is present
-            fetch('/api/validate' + (ticket ? '?ticket=' + ticket : ''))
-                .then(response => {
-                    if (response.status === 200) {
-                        return response.json();
-                    } else if (response.status === 401) {
-                       window.location.href = 'https://login.dartmouth.edu/cas/login?service=' + encodeURIComponent(window.location.href);
-                        throw new Error('Unauthorized');
-                    } else {
-                        throw new Error('Unexpected response status: ' + response.status);
-                    }
-                })
-                .then(data => {
-                    console.log('Response from /api/validate:', data);
-                    // Remove the ticket from the URL after it has been validated
-                    if (ticket) {
-                        window.history.replaceState({}, document.title, window.location.pathname);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error with /api/validate fetch:', error);
-                });
-        }, []);
+        //     // Always call /api/validate, whether or not a ticket is present
+        //     fetch('/api/validate' + (ticket ? '?ticket=' + ticket : ''))
+        //         .then(response => {
+        //             if (response.status === 200) {
+        //                 return response.json();
+        //             //} else if (response.status === 401 && !isDebugMode) {
+        //             } else if (response.status === 401) {
+        //                window.location.href = 'https://login.dartmouth.edu/cas/login?service=' + encodeURIComponent(window.location.href);
+        //                 throw new Error('Unauthorized');
+        //             } else {
+        //                 throw new Error('Unexpected response status: ' + response.status);
+        //             }
+        //         })
+        //         .then(data => {
+        //             console.log('Response from /api/validate:', data);
+        //             // Remove the ticket from the URL after it has been validated
+        //             if (ticket) {
+        //                 window.history.replaceState({}, document.title, window.location.pathname);
+        //             }
+        //         })
+        //         .catch(error => {
+        //             console.error('Error with /api/validate fetch:', error);
+        //         });
+        // }, []);
 
 
     return (

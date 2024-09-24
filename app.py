@@ -14,9 +14,8 @@ from quart import Quart, session, request, jsonify
 from azure.cosmos import CosmosClient, exceptions
 from azure.core.exceptions import ResourceNotFoundError
 from redis import Redis
-
-
-
+import openai
+import os
 
 
 from quart import (
@@ -29,7 +28,7 @@ from quart import (
     render_template,
 )
 
-
+from quart_cors import cors
 
 
 from openai import AsyncAzureOpenAI
@@ -149,10 +148,13 @@ container = database.get_container_client(AZURE_COSMOSDB_SESSIONS_CONTAINER)
 
 def create_app():
     app = Quart(__name__)
+    app = cors(app, allow_origin="*")
     app.secret_key = SESSION_SECRET
     app.register_blueprint(bp)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.run(host='0.0.0.0', port=8080)
 
+    
     cosmos_client = init_cosmosdb_client()
     app.config['SESSION_COOKIE_NAME'] = SESSION_NAME
    # Initialize Redis session interface
@@ -166,13 +168,13 @@ log_file = 'app.log'
 
 file_handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
 file_handler.setFormatter(log_formatter)
-file_handler.setLevel(logging.INFO)
+file_handler.setLevel(logging.DEBUG)
 
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
-console_handler.setLevel(logging.INFO)
+console_handler.setLevel(logging.DEBUG)
 
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 logging.getLogger().addHandler(file_handler)
 logging.getLogger().addHandler(console_handler)
 
@@ -338,6 +340,7 @@ frontend_settings = {
 
 
 
+
 def validate_cas_ticket(ticket, service):
     # CAS server's serviceValidate URL
     cas_url = 'https://login.dartmouth.edu/cas/serviceValidate'
@@ -482,23 +485,23 @@ def get_configured_data_source():
         logging.debug(AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT)  
         
 
-    url = TUCK_AI_SEARCH_TEMPLATE_URL
-    headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
-    params = {'action': 'generate_template', 'user_id': session['user']}
+    # url = TUCK_AI_SEARCH_TEMPLATE_URL
+    # headers = {'Authorization': 'Bearer ' + TUCK_AZURE_API_KEY}
+    # params = {'action': 'generate_template', 'user_id': session['user']}
    
 
-    response = requests.get(url, headers=headers, params=params)
-    print(f'Template Data: {response}')
+    # response = requests.get(url, headers=headers, params=params)
+    # print(f'Template Data: {response}')
 
-    if response.status_code == 200:
-        data = response.json()
-        query_filter = data['filter']
-        logging.debug(session['user'])
-        logging.debug('query filter')
-        logging.debug(f"QUERY FILTER: {json.dumps(query_filter, indent=4)}")
-        # Continue with the rest of the function using the courses data
-    else:
-        print(f'Error: {response.status_code}')
+    # if response.status_code == 200:
+    #     data = response.json()
+    #     query_filter = data['filter']
+    #     logging.debug(session['user'])
+    #     logging.debug('query filter')
+    #     logging.debug(f"QUERY FILTER: {json.dumps(query_filter, indent=4)}")
+    #     # Continue with the rest of the function using the courses data
+    # else:
+    #     print(f'Error: {response.status_code}')
         # Handle error       
     
     data_source = {}
@@ -554,7 +557,7 @@ def get_configured_data_source():
                     "queryType": query_type,
                     "semanticConfiguration": AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG if AZURE_SEARCH_SEMANTIC_SEARCH_CONFIG else "",
                     "roleInformation": AZURE_OPENAI_SYSTEM_MESSAGE_CURRENT,
-                    "filter": query_filter, # Dynamic from template
+                    # "filter": query_filter, # Dynamic from template
                   # "filter": filter, # Default 'None' set above.
                     "strictness": int(AZURE_SEARCH_STRICTNESS) if AZURE_SEARCH_STRICTNESS else int(SEARCH_STRICTNESS)
                 }
@@ -634,7 +637,7 @@ def get_configured_data_source():
                 },
                 "inScope": True if AZURE_MLINDEX_ENABLE_IN_DOMAIN.lower() == "true" else False,
                 "topNDocuments": int(AZURE_MLINDEX_TOP_K) if AZURE_MLINDEX_TOP_K else int(SEARCH_TOP_K),
-                "queryType": query_type,
+                # "queryType": query_type,
                 "roleInformation": AZURE_OPENAI_SYSTEM_MESSAGE,
                 "strictness": int(AZURE_MLINDEX_STRICTNESS) if AZURE_MLINDEX_STRICTNESS else int(SEARCH_STRICTNESS)
             }
@@ -697,6 +700,12 @@ def get_configured_data_source():
 
 def prepare_model_args(request_body):
     request_messages = request_body.get("messages", [])
+    
+    # Validate that there is at least one message
+    if not request_messages or len(request_messages) == 0:
+        raise ValueError("The 'messages' field should contain at least one message.")
+
+    # Initialize messages with the system message, if not using custom data
     messages = []
     if not SHOULD_USE_DATA:
         messages = [
@@ -706,13 +715,30 @@ def prepare_model_args(request_body):
             }
         ]
 
+    # Add user and assistant messages
     for message in request_messages:
         if message:
+            message_content = message["content"]
+
+            # Handle imageData properly: add it to a separate field or include it in the content if supported
+            if 'imageData' in message:
+                logging.debug(f"Handling image data in message {message['id']}")
+                
+                # Optionally, you can decide if the image data should be processed separately.
+                # For example, you can add a special marker in the content, e.g., "<image attached>"
+                # Or pass the image data separately for external processing.
+                message_content += " [Image attached]"  # This is optional and for clarity
+                
+                # You can also store the imageData for separate processing later if needed.
+                # Example: handle_image_data(message['imageData'])
+
+            # Ensure the message with user role is included even with imageData
             messages.append({
-                "role": message["role"] ,
-                "content": message["content"]
+                "role": message["role"],
+                "content": message_content
             })
 
+    # Prepare the model arguments for the OpenAI API call
     model_args = {
         "messages": messages,
         "temperature": float(AZURE_OPENAI_TEMPERATURE),
@@ -723,11 +749,13 @@ def prepare_model_args(request_body):
         "model": AZURE_OPENAI_MODEL,
     }
 
+    # Add extra data sources if required
     if SHOULD_USE_DATA:
         model_args["extra_body"] = {
             "dataSources": [get_configured_data_source()]
         }
 
+    # Sanitize sensitive information for logging
     model_args_clean = copy.deepcopy(model_args)
     if model_args_clean.get("extra_body"):
         secret_params = ["key", "connectionString", "embeddingKey", "encodedApiKey", "apiKey"]
@@ -743,26 +771,27 @@ def prepare_model_args(request_body):
             for field in embeddingDependency["authentication"]:
                 if field in secret_params:
                     model_args_clean["extra_body"]["dataSources"][0]["parameters"]["embeddingDependency"]["authentication"][field] = "*****"
-        
+
+    # Log the sanitized request body for debugging purposes
     logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
     
     return model_args
 
 async def send_chat_request(request, model):
-        # This is a placeholder implementation
-    if model == 'chatgpt4':
-        # Send request to ChatGPT 4.0
-        pass
-    else:
-        # Send request to ChatGPT 3.5
-        pass
-    
+    # Determine the model version and set the model_args
     model_args = prepare_model_args(request)
-    print(f"Model arguments: {model_args}")  # Print the model arguments
-
+    
+    # Log the model arguments
+    logging.debug('Model arguments in send_chat_request: %s', json.dumps(model_args, indent=2))
+    
     try:
         azure_openai_client = init_openai_client()
-        response = await azure_openai_client.chat.completions.create(**model_args)
+
+        # Call the appropriate model based on whether it's ChatGPT 4 or 3.5
+        if model == 'chatgpt4':
+            response = await azure_openai_client.chat.completions.create(**model_args)
+        else:
+            response = await azure_openai_client.chat.completions.create(**model_args)
 
     except Exception as e:
         logging.exception("Exception in send_chat_request")
@@ -788,19 +817,44 @@ async def stream_chat_request(request_body, model):
 
 async def conversation_internal(request_body):
     try:
-        model = request_body.get('model', 'chatgpt35')  # Default to chatgpt-3.5 if not specified
+        # Log the full request body to verify the structure
+        logging.debug("Full request body received in conversation_internal: %s", json.dumps(request_body, indent=2))
+
+        # Check if 'request' key exists and extract messages from there
+        if 'request' in request_body:
+            messages = request_body['request'].get('messages', [])
+        else:
+            messages = request_body.get('messages', [])
+
+        if not messages or len(messages) == 0:
+            raise ValueError("The 'messages' field should contain at least one message.")
+
+        for message in messages:
+            if 'imageData' in message:
+                logging.debug('request body in conversation_internal (with truncated imageData): %s', json.dumps({**message, 'imageData': 'truncated'}))
+            else:
+                logging.debug('request body in conversation_internal: %s', json.dumps(message, indent=2))
+
+        # Extract the model or use the default one
+        model = request_body.get('model', 'chatgpt35')
+        
         if SHOULD_STREAM:
+            logging.debug("Starting streaming request")
             result = await stream_chat_request(request_body, model)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
             return response
         else:
+            logging.debug("Starting non-streaming request")
             result = await complete_chat_request(request_body, model)
             return jsonify(result)
     
+    except ValueError as ve:
+        logging.error(f"Validation error in conversation_internal: {ve}")
+        return jsonify({"error": str(ve)}), 400
     except Exception as ex:
-        logging.exception(ex)
+        logging.exception(f"Unhandled exception in conversation_internal: {ex}")
         if hasattr(ex, "status_code"):
             return jsonify({"error": str(ex)}), ex.status_code
         else:
@@ -815,7 +869,8 @@ async def conversation():
 
     # Log the request JSON
     logging.info(f"Conversation Request - ID: {request_json.get('id', 'N/A')} - Payload: {request_json}")
-        
+    logging.debug(f"Received request body: {json.dumps(request_json, indent=2)}")
+   
     return await conversation_internal(request_json)
 
 @bp.route("/frontend_settings", methods=["GET"])  
@@ -832,8 +887,8 @@ def get_frontend_settings():
 @bp.route("/history/generate", methods=["POST"])
 async def add_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -885,8 +940,8 @@ async def add_conversation():
 @bp.route("/history/update", methods=["POST"])
 async def update_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -936,8 +991,8 @@ async def update_conversation():
 @bp.route("/history/message_feedback", methods=["POST"])
 async def update_message():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
     cosmos_conversation_client = init_cosmosdb_client()
 
     ## check request for message_id
@@ -967,8 +1022,8 @@ async def update_message():
 async def delete_conversation():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
     
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1001,8 +1056,8 @@ async def delete_conversation():
 async def list_conversations():
     offset = request.args.get("offset", 0)
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## make sure cosmos is configured
     cosmos_conversation_client = init_cosmosdb_client()
@@ -1023,8 +1078,8 @@ async def list_conversations():
 @bp.route("/history/read", methods=["POST"])
 async def get_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1056,8 +1111,8 @@ async def get_conversation():
 @bp.route("/history/rename", methods=["POST"])
 async def rename_conversation():
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1090,8 +1145,8 @@ async def rename_conversation():
 async def delete_all_conversations():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
 
     # get conversations for user
     try:
@@ -1122,8 +1177,8 @@ async def delete_all_conversations():
 async def clear_messages():
     ## get the user id from the request headers
     authenticated_user = get_authenticated_user_details(request_headers=request.headers)
-    #user_id = authenticated_user['user_principal_id']
-    user_id = hashlib.md5(session['user'].encode()).hexdigest()
+    user_id = authenticated_user['user_principal_id']
+    #user_id = hashlib.md5(session['user'].encode()).hexdigest()
     
     ## check request for conversation_id
     request_json = await request.get_json()
@@ -1179,8 +1234,47 @@ async def ensure_cosmos():
 
 from azure.cosmos import CosmosClient
 
+openai.api_key = os.getenv('AZURE_OPENAI_KEY')
+
+@bp.route('/api/describe-image', methods=['POST'])
+async def describe_image():
+    try:
+        # Await the JSON data from the request
+        data = await request.get_json()
+        image = data.get('image')  # Extract the image data from the request
+        
+        print('Image data:', image)  # Debugging line
+
+        if not image:
+            return jsonify({'error': 'No image data provided'}), 400
+
+        print('Received image data')  # Debugging line
+
+        # Call the OpenAI API to generate the description
+        response = openai.ChatCompletion.create(
+            model='gpt-4',
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that describes images."},
+                {"role": "user", "content": f"Describe the following image, but do not include any descriptions of people. Image data: {image}"}
+            ],
+            max_tokens=100
+        )
+
+        print('OpenAI response:', response)  # Debugging line
+
+        # Extract and return the description from the response
+        description = response['choices'][0]['message']['content'].strip()
+        return jsonify({'description': description})
+
+    except Exception as error:
+        print('Error generating description:', error)
+        return jsonify({'error': 'Failed to generate description'}), 500
+    
 @bp.route('/api/validate', methods=['GET'])
 async def validate_ticket():
+    # if app.config['DEBUG']:
+    #     return jsonify({'status': 'debug mode, authentication bypassed'}), 200
+
     # Define 'ticket' before the 'if' statement
     ticket = request.args.get('ticket')
 
@@ -1302,5 +1396,7 @@ def get_course_enrollments():
 
 
 
-
-app = create_app()
+if __name__ == '__main__':
+    app = create_app()
+    app.run(host='0.0.0.0', port=8080)  # Bind to your specific IP address
+#app = create_app()
