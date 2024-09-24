@@ -16,6 +16,7 @@ import PromptIdeas from "../../components/PromptIdeas/PromptIdeas";
 import RealTimeVision from '../../components/RealTimeVision/RealTimeVision';
 import CameraModule from "../../components/CameraModule/CameraModule";
 
+
 import {
     ChatMessage,
     ConversationRequest,
@@ -729,6 +730,7 @@ const Chat = () => {
                                         conversationId={appStateContext?.state.currentChat?.id}
                                     /> */}
                                     {/* </div> */}
+
                                 </Stack>
                                 <Stack>
                                     {/* Other components */}
