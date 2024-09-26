@@ -16,6 +16,11 @@ from azure.core.exceptions import ResourceNotFoundError
 from redis import Redis
 import openai
 import os
+import base64
+from azure.ai.inference import ChatCompletionsClient
+from azure.core.credentials import AzureKeyCredential
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+from datetime import datetime, timedelta, timezone
 
 
 from quart import (
@@ -132,6 +137,10 @@ REDIS_PASSWORD= os.environ.get("REDIS_PASSWORD")
 PROMPT_SUGGESTIONS = os.environ.get("PROMPT_SUGGESTIONS")
 PROMPT_SUGGESTIONS_SHOW_NUM = os.environ.get("PROMPT_SUGGESTIONS_SHOW_NUM")
 
+# Initialize Blob Service Client
+account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
+account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
+
 
 # Initialize Redis client
 redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, ssl=True, ssl_cert_reqs=None)
@@ -192,6 +201,16 @@ async def assets(path):
     return await send_from_directory("static/assets", path)
 
 load_dotenv()
+
+# Ensure required environment variables are set
+required_env_vars = ["AZURE_STORAGE_CONNECTION_STRING", "AZURE_INFERENCE_CREDENTIAL"]
+for var in required_env_vars:
+    if not os.getenv(var):
+        raise EnvironmentError(f"Required environment variable {var} is not set.")
+
+# Initialize Blob Service Client
+connection_string = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+
 
 @bp.route('/api/prompt-suggestions', methods=['GET'])
 async def get_prompt_suggestions():
@@ -777,27 +796,170 @@ def prepare_model_args(request_body):
     
     return model_args
 
-async def send_chat_request(request, model):
-    # Determine the model version and set the model_args
-    model_args = prepare_model_args(request)
+async def send_vision_instruct_request(request):
+    # Extract the image URL and text content
+    payload = prepare_model_args_for_phi_vision(request)  # This function prepares the payload specifically for the Phi-3-5-Vision-Instruct model
     
-    # Log the model arguments
-    logging.debug('Model arguments in send_chat_request: %s', json.dumps(model_args, indent=2))
-    
-    try:
-        azure_openai_client = init_openai_client()
+    logging.debug('Phi-3-5 Vision model payload: %s', json.dumps(payload, indent=2))
 
-        # Call the appropriate model based on whether it's ChatGPT 4 or 3.5
-        if model == 'chatgpt4':
-            response = await azure_openai_client.chat.completions.create(**model_args)
-        else:
-            response = await azure_openai_client.chat.completions.create(**model_args)
+    try:
+        # Set up the client for Phi-3-5 Vision Instruct
+        api_key = os.getenv("AZURE_INFERENCE_CREDENTIAL", '')
+        if not api_key:
+            raise Exception("A key should be provided to invoke the endpoint")
+
+        client = ChatCompletionsClient(
+            endpoint='https://Phi-3-5-vision-instruct-gupgj.eastus.models.ai.azure.com',
+            credential=AzureKeyCredential(api_key)
+        )
+        
+        # Send the request and get the response
+        response = client.complete(payload)
+
+        # Log or process the response
+        logging.debug("Response from Phi-3-5 Vision model: %s", response.choices[0].message.content)
+        logging.debug("Model: %s", response.model)
+        logging.debug("Prompt tokens: %d", response.usage.prompt_tokens)
+        logging.debug("Total tokens: %d", response.usage.total_tokens)
+        logging.debug("Completion tokens: %d", response.usage.completion_tokens)
+
+        return response.choices[0].message.content
 
     except Exception as e:
-        logging.exception("Exception in send_chat_request")
+        logging.exception("Exception in send_vision_instruct_request")
         raise e
 
-    return response
+def prepare_model_args_for_phi_vision(request_body):
+    request_messages = request_body.get("messages", [])
+
+    image_url = None
+    user_text = None
+    image_data_base64 = None
+
+    # Process messages to extract image URL and text content
+    for message in request_messages:
+        if message["role"] == "user":
+            if 'imageData' in message:
+                # Extract base64 image data
+                image_data_base64 = message['imageData']
+            user_text = message["content"]
+
+    logging.debug(f"Extracted image data: {image_data_base64}")
+    logging.debug(f"Extracted user text: {user_text}")
+
+    # Upload image to Azure Blob Storage and get the URL with SAS token
+    if image_data_base64:
+        # Decode the base64 image data if necessary
+        try:
+            image_data = base64.b64decode(image_data_base64.split(",")[1])
+            image_url = upload_image_to_blob(image_data)
+            logging.debug(f"Image uploaded to URL: {image_url}")
+        except Exception as e:
+            logging.exception("Failed to decode and upload image data")
+            raise e
+    else:
+        raise ValueError("Image data is missing for Phi-3-5 Vision Instruct model.")
+
+    # Prepare the API payload
+    if image_url and user_text:
+        payload = {
+            "input_data": {
+                "input_string": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": image_url  # Image URL with SAS token goes here
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": user_text  # User text prompt
+                            }
+                        ]
+                    }
+                ],
+                "parameters": {
+                    "temperature": 0.7,
+                    "max_new_tokens": 2048
+                }
+            }
+        }
+        logging.debug(f"Prepared payload: {json.dumps(payload, indent=2)}")
+    else:
+        raise ValueError("Both image URL and user text must be provided.")
+
+    return payload
+
+def upload_image_to_blob(image_data, container_name="images"):
+    # Ensure the local directory exists
+    local_directory = "backup"
+    if not os.path.exists(local_directory):
+        os.makedirs(local_directory)
+
+    # Generate a unique file name
+    file_name = f"{uuid.uuid4()}.png"
+    local_file_path = os.path.join(local_directory, file_name)
+
+    # Save the image data to the local directory
+    with open(local_file_path, "wb") as file:
+        file.write(image_data)
+    logging.debug(f"Image saved locally at {local_file_path}")
+
+    # Generate a SAS token for the blob
+    sas_token = generate_blob_sas(
+        account_name=account_name,
+        container_name=container_name,
+        blob_name=file_name,
+        account_key=account_key,
+        permission=BlobSasPermissions(read=True),
+        expiry=datetime.now(timezone.utc) + timedelta(hours=1)
+    )
+
+    try:
+        # Upload the image to Azure Blob Storage using the SAS token
+        blob_service_client = BlobServiceClient(account_url=f"https://{account_name}.blob.core.windows.net", credential=account_key)
+        container_client = blob_service_client.get_container_client(container_name)
+        blob_client = container_client.get_blob_client(file_name)
+        blob_client.upload_blob(image_data, blob_type="BlockBlob")
+
+        # Return the URL of the uploaded image with the SAS token
+        blob_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{file_name}?{sas_token}"
+        logging.debug(f"Image uploaded to Azure Blob Storage at {blob_url}")
+
+        return blob_url
+    except Exception as e:
+        logging.exception("Exception in upload_image_to_blob")
+        raise e
+
+async def send_chat_request(request, model):
+    request_messages = request.get("messages", [])
+    contains_image = any('imageData' in message for message in request_messages)
+
+    # Determine whether to use the vision model or text-only model
+    if contains_image:
+        logging.debug("Image detected, using Phi-3-5 Vision Instruct model.")
+        payload = prepare_model_args_for_phi_vision(request)
+        return await send_vision_instruct_request(payload)
+    else:
+        logging.debug("No image detected, using ChatGPT model.")
+        model_args = prepare_model_args(request)
+        
+        try:
+            azure_openai_client = init_openai_client()
+
+            if model == 'chatgpt4':
+                response = await azure_openai_client.chat.completions.create(**model_args)
+            else:
+                response = await azure_openai_client.chat.completions.create(**model_args)
+
+        except Exception as e:
+            logging.exception("Exception in send_chat_request")
+            raise e
+
+        return response
 
 async def complete_chat_request(request_body, model):
     response = await send_chat_request(request_body, model)
