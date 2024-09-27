@@ -796,44 +796,13 @@ def prepare_model_args(request_body):
     
     return model_args
 
-async def send_vision_instruct_request(request):
-    # Extract the image URL and text content
-    payload = prepare_model_args_for_phi_vision(request)  # This function prepares the payload specifically for the Phi-3-5-Vision-Instruct model
-    
-    logging.debug('Phi-3-5 Vision model payload: %s', json.dumps(payload, indent=2))
-
-    try:
-        # Set up the client for Phi-3-5 Vision Instruct
-        api_key = os.getenv("AZURE_INFERENCE_CREDENTIAL", '')
-        if not api_key:
-            raise Exception("A key should be provided to invoke the endpoint")
-
-        client = ChatCompletionsClient(
-            endpoint='https://Phi-3-5-vision-instruct-gupgj.eastus.models.ai.azure.com',
-            credential=AzureKeyCredential(api_key)
-        )
-        
-        # Send the request and get the response
-        response = client.complete(payload)
-
-        # Log or process the response
-        logging.debug("Response from Phi-3-5 Vision model: %s", response.choices[0].message.content)
-        logging.debug("Model: %s", response.model)
-        logging.debug("Prompt tokens: %d", response.usage.prompt_tokens)
-        logging.debug("Total tokens: %d", response.usage.total_tokens)
-        logging.debug("Completion tokens: %d", response.usage.completion_tokens)
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-        logging.exception("Exception in send_vision_instruct_request")
-        raise e
-
 def prepare_model_args_for_phi_vision(request_body):
+    logging.debug(f"Received request body: {json.dumps(request_body, indent=2)}")
+    
     request_messages = request_body.get("messages", [])
 
     image_url = None
-    user_text = None
+    user_text = "Describe the following image"
     image_data_base64 = None
 
     # Process messages to extract image URL and text content
@@ -863,29 +832,15 @@ def prepare_model_args_for_phi_vision(request_body):
     # Prepare the API payload
     if image_url and user_text:
         payload = {
-            "input_data": {
-                "input_string": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": image_url  # Image URL with SAS token goes here
-                                }
-                            },
-                            {
-                                "type": "text",
-                                "text": user_text  # User text prompt
-                            }
-                        ]
-                    }
-                ],
-                "parameters": {
-                    "temperature": 0.7,
-                    "max_new_tokens": 2048
+            "messages": [
+                {
+                    "role": "user",
+                    "content": f"Here is an image: {image_url}. {user_text}"
                 }
-            }
+            ],
+            "max_tokens": 2048,
+            "temperature": 0.7,
+            "top_p": 1
         }
         logging.debug(f"Prepared payload: {json.dumps(payload, indent=2)}")
     else:
@@ -893,7 +848,53 @@ def prepare_model_args_for_phi_vision(request_body):
 
     return payload
 
-def upload_image_to_blob(image_data, container_name="images"):
+async def send_vision_instruct_request(payload):
+    logging.debug('Prepared payload to send to Phi-3-5 Vision model: %s', json.dumps(payload, indent=2))
+
+    try:
+        # Set up the client for Phi-3-5 Vision Instruct
+        api_key = os.getenv("AZURE_INFERENCE_CREDENTIAL", '')
+        if not api_key:
+            raise ValueError("A key should be provided to invoke the endpoint")
+
+        client = ChatCompletionsClient(
+            endpoint='https://Phi-3-5-vision-instruct-gupgj.eastus.models.ai.azure.com',
+            credential=AzureKeyCredential(api_key)
+        )
+
+        # Log model information
+        model_info = client.get_model_info()
+        logging.debug("Model name: %s", model_info.model_name)
+        logging.debug("Model type: %s", model_info.model_type)
+        logging.debug("Model provider name: %s", model_info.model_provider_name)
+
+        # Ensure the payload is JSON-serializable and in the correct format
+        logging.debug(f"Sending payload: {json.dumps(payload, indent=2)}")
+
+        try:
+            json_payload = json.dumps(payload, indent=2)
+            logging.debug(f"Payload successfully converted to JSON: {json_payload}")
+        except (TypeError, ValueError) as e:
+            logging.exception("Payload is not JSON serializable.")
+            raise e
+
+        # Send the request and get the response
+        response = client.complete(payload)  # Make sure `payload` is a dict, not an object or class.
+
+        # Log the response
+        logging.debug("Response from Phi-3-5 Vision model: %s", response.choices[0].message.content)
+        logging.debug("Model: %s", response.model)
+        logging.debug("Prompt tokens: %d", response.usage.prompt_tokens)
+        logging.debug("Total tokens: %d", response.usage.total_tokens)
+        logging.debug("Completion tokens: %d", response.usage.completion_tokens)
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        logging.exception("Exception in send_vision_instruct_request")
+        raise e
+    
+def upload_image_to_blob(image_data, container_name="ms-az-cognitive-im"):
     # Ensure the local directory exists
     local_directory = "backup"
     if not os.path.exists(local_directory):
@@ -918,7 +919,7 @@ def upload_image_to_blob(image_data, container_name="images"):
         expiry=datetime.now(timezone.utc) + timedelta(hours=1)
     )
 
-    try:
+    try:    
         # Upload the image to Azure Blob Storage using the SAS token
         blob_service_client = BlobServiceClient(account_url=f"https://{account_name}.blob.core.windows.net", credential=account_key)
         container_client = blob_service_client.get_container_client(container_name)
@@ -938,15 +939,24 @@ async def send_chat_request(request, model):
     request_messages = request.get("messages", [])
     contains_image = any('imageData' in message for message in request_messages)
 
-    # Determine whether to use the vision model or text-only model
     if contains_image:
         logging.debug("Image detected, using Phi-3-5 Vision Instruct model.")
         payload = prepare_model_args_for_phi_vision(request)
-        return await send_vision_instruct_request(payload)
+        response_content = await send_vision_instruct_request(payload)
+
+        # Wrap response in an object with an id and content for further processing
+        completionChunk = {
+            "id": "vision-instruct-response",  # Example ID
+            "content": response_content
+        }
+
+        # Yield the completion chunk for streaming
+        yield completionChunk
+
     else:
         logging.debug("No image detected, using ChatGPT model.")
         model_args = prepare_model_args(request)
-        
+
         try:
             azure_openai_client = init_openai_client()
 
@@ -955,27 +965,45 @@ async def send_chat_request(request, model):
             else:
                 response = await azure_openai_client.chat.completions.create(**model_args)
 
+            # Wrap response in an object with an id and content for further processing
+            completionChunk = {
+                "id": "chatgpt-response",  # Example ID
+                "content": response.choices[0].message['content']
+            }
+
+            # Yield the completion chunk for streaming
+            yield completionChunk
+
         except Exception as e:
             logging.exception("Exception in send_chat_request")
             raise e
 
-        return response
-
 async def complete_chat_request(request_body, model):
     response = await send_chat_request(request_body, model)
+    #log the response
+    logging.debug(f"Response from complete_chat_request model: {response}")
+
     history_metadata = request_body.get("history_metadata", {})
 
     return format_non_streaming_response(response, history_metadata)
 
 async def stream_chat_request(request_body, model):
-    response = await send_chat_request(request_body, model)
     history_metadata = request_body.get("history_metadata", {})
 
     async def generate():
-        async for completionChunk in response:
+        async for completionChunk in send_chat_request(request_body, model):
+            # Pass the structured chunk to format_stream_response
             yield format_stream_response(completionChunk, history_metadata)
 
     return generate()
+
+def format_stream_response(chatCompletionChunk, history_metadata):
+    # Return the formatted response
+    return {
+        "id": chatCompletionChunk["id"],  # Access the dictionary keys correctly
+        "content": chatCompletionChunk["content"],  # Access content using dictionary key
+        "history": history_metadata  # Pass the metadata if required
+    }
 
 async def conversation_internal(request_body):
     try:
