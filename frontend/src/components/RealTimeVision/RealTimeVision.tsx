@@ -25,11 +25,14 @@ import {
 const RealTimeVision: React.FC = () => {
     const videoRef = useRef<HTMLVideoElement>(null);  // Used for camera input, but hidden from the user
     const canvasRef = useRef<HTMLCanvasElement>(null); // Used to display the video feed and predictions
-    const [description, setDescription] = useState<string>('');
+    const [descriptionImage, setDescriptionImage] = useState<string>('');
     const [error, setError] = useState<string>('');
     const [isCameraReady, setIsCameraReady] = useState<boolean>(false);
     const abortFuncs = useRef<AbortController[]>([]);
     const appStateContext = useContext(AppStateContext);
+    const [response, setResponse] = useState<string>('');
+
+    const [ASSISTANT, TOOL, ERROR] = ["assistant", "tool", "error"]
 
     const isIphone = () => {
         return /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -124,108 +127,144 @@ const RealTimeVision: React.FC = () => {
         }
     };
 
-    const captureImage = async () => {
-        if (!canvasRef.current || !videoRef.current) return;
+const captureImage = async () => {
+    if (!canvasRef.current || !videoRef.current) return;
 
-        const ctx = canvasRef.current.getContext('2d');
-        if (!ctx) return;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
 
-        const abortController = new AbortController();
-        abortFuncs.current.unshift(abortController);
+    const abortController = new AbortController();
+    abortFuncs.current.unshift(abortController);
 
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const imageData = canvasRef.current.toDataURL('image/png');
+    ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+    const imageData = canvasRef.current.toDataURL('image/png');
 
-        const userMessage = {
-            id: uuid(),
-            role: "user",
-            content: `Describe the following image, but do not include any descriptions of people`,
-            imageData: imageData, // Add the imageData as a separate field in the object
-            date: new Date().toISOString(),
-        };
-
-        const systemMessage = {
-            id: uuid(),
-            role: "system",
-            content: "You are a helpful assistant that describes images.",
-            date: new Date().toISOString(),
-        };
-
-
-        const conversationId = appStateContext?.state?.currentChat?.id;
-
-        let conversation: Conversation | null | undefined;
-        if (!conversationId) {
-            conversation = {
-                id: conversationId ?? uuid(),
-                title: "Image Description",
-                messages: [userMessage, systemMessage],
-                date: new Date().toISOString(),
-            };
-        } else {
-            conversation = appStateContext?.state?.currentChat;
-            if (!conversation) {
-                console.error("Conversation not found.");
-                abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
-                return [];
-            }
-        }
-
-        const request: ConversationRequest = {
-            messages: [...conversation.messages.filter((answer) => answer.role !== error)]
-        };
-
-        //add log of request if DEBUG is enabled
-        if (process.env.REACT_APP_DEBUG
-            && process.env.REACT_APP_DEBUG === "true")
-            {
-            log("Request to conversationApi:", request);
-            }
-
-        // log messages with log(
-        log("Request to conversationApi:", request);
-
-        let result = {} as ChatResponse;
-        try {
-            const response = await conversationApi(request, abortController.signal);
-            if (response?.body) {
-                const reader = response.body.getReader();
-                // log the reader
-                log("Reader:", reader);
-            }
-        } catch (error) {
-            console.error("Error generating prompt ideas:", error);
-        } finally {
-            abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
-        }                       
-
-
-        // fetch('/conversation', { // Updated URL
-        //     method: 'POST',
-        //     headers: {
-        //         'Content-Type': 'application/json',
-        //     },
-        //     body: JSON.stringify({request}),
-        // })
-        //     .then(response => {
-        //         if (!response.ok) {
-        //             throw new Error('Network response was not ok');
-        //         }
-        //         return response.json();
-        //     })
-        //     .then(data => {
-        //         if (data.description) {
-        //             setDescription(data.description);
-        //         } else {
-        //             throw new Error('Description not found in response');
-        //         }
-        //     })
-        //     .catch(error => {
-        //         console.error('Error fetching description:', error);
-        //         setError('Error fetching description. Please try again.');
-        //     });
+    const userMessage = {
+        id: uuid(),
+        role: "user",
+        content: `Describe the following image, but do not include any descriptions of people`,
+        imageData: imageData, // Add the imageData as a separate field in the object
+        date: new Date().toISOString(),
     };
 
+    const systemMessage = {
+        id: uuid(),
+        role: "system",
+        content: "You are a helpful assistant that describes images.",
+        date: new Date().toISOString(),
+    };
+
+    const conversationId = appStateContext?.state?.currentChat?.id;
+
+    let conversation: Conversation | null | undefined;
+    if (!conversationId) {
+        conversation = {
+            id: conversationId ?? uuid(),
+            title: "Image Description",
+            messages: [userMessage, systemMessage],
+            date: new Date().toISOString(),
+        };
+    } else {
+        conversation = appStateContext?.state?.currentChat;
+        if (!conversation) {
+            console.error("Conversation not found.");
+            abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
+            return [];
+        }
+    }
+
+    const request: ConversationRequest = {
+        messages: [...conversation.messages.filter((answer) => answer.role !== error)]
+    };
+
+    log("Request to conversationApi:", request);
+
+    let buffer = ''; // Buffer to accumulate incomplete JSON data
+    try {
+        const response = await conversationApi(request, abortController.signal);
+        let result = {} as ChatResponse;
+        //log response in json format
+        //setResponse(JSON.stringify(response, null, 2));
+        //log("Response from conversationApi:", response);
+        if (response?.body) {
+            const reader = response.body.getReader();
+    
+            let runningText = "";
+            let procText = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                var text = new TextDecoder("utf-8").decode(value);
+                log("Text from conversationApi:", text);
+                console.log("Text from conversationApi:", text);
+                const objects = text.split("\n");
+                objects.forEach((obj) => {
+                    try {
+                        if (obj !== "" && obj !== "{}") {
+                            runningText += obj;
+                            result = JSON.parse(runningText);
+                            if (result.choices?.length > 0) {
+                                result.choices[0].messages.forEach((msg) => {
+                                    msg.id = result.id;
+                                    msg.date = new Date().toISOString();
+                                });
+                                result.choices[0].messages.forEach((resultObj) => {
+                                    const context = processRealTimeDescription(resultObj, userMessage, conversationId);
+                                });
+                            }
+                            runningText = "";
+                            procText = JSON.stringify(result);
+                        } else if (result.error) {
+                            throw Error(result.error);
+                        }
+                    } catch (e) {
+                        if (!(e instanceof SyntaxError)) {
+                            console.error(e);
+                            throw e;
+                        } else {
+                            log("Incomplete message. Continuing...");
+                        }
+                    }
+                });
+            }
+        }
+    } catch (error) {
+        console.error("Error generating prompt ideas or parsing JSON:", error);
+        console.error("Response received:", buffer);
+    } finally {
+        abortFuncs.current = abortFuncs.current.filter(a => a !== abortController);
+    }
+};
+
+let assistantMessage = {} as ChatMessage
+let toolMessage = {} as ChatMessage
+let assistantContent = ""
+
+
+const processRealTimeDescription= (resultMessage: ChatMessage, userMessage: ChatMessage, conversationId?: string) => {
+    if (resultMessage.role === ASSISTANT) {
+
+    if (resultMessage.role === ASSISTANT) {
+        assistantContent += resultMessage.content
+        assistantMessage = resultMessage
+        assistantMessage.content = assistantContent
+
+        if (resultMessage.context) {
+            toolMessage = {
+                id: uuid(),
+                role: TOOL,
+                content: resultMessage.context,
+                date: new Date().toISOString(),
+            }
+        }
+    }
+
+
+    if (resultMessage.role === TOOL) toolMessage = resultMessage
+    }
+}
     useEffect(() => {
         const initializeCamera = async () => {
             const hasPermissions = await checkCameraPermissions();
@@ -254,8 +293,15 @@ const RealTimeVision: React.FC = () => {
             {isCameraReady && (
                 <>
                     <button onClick={captureImage}>Capture Image</button>
-                    {description && <p>{description}</p>}
                 </>
+            )}
+
+            {/* Display the response at the bottom of the screen */}
+            {descriptionImage && (
+                <div style={{ marginTop: '20px', padding: '10px', border: '1px solid #ccc', borderRadius: '5px', backgroundColor: '#f9f9f9' }}>
+                    <h2>Image Description:</h2>
+                    <p>{descriptionImage}</p>
+                </div>
             )}
         </div>
     );

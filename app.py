@@ -21,7 +21,8 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.core.credentials import AzureKeyCredential
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from datetime import datetime, timedelta, timezone
-
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from msrest.authentication import CognitiveServicesCredentials
 
 from quart import (
     Blueprint,
@@ -141,6 +142,9 @@ PROMPT_SUGGESTIONS_SHOW_NUM = os.environ.get("PROMPT_SUGGESTIONS_SHOW_NUM")
 account_name = os.environ.get("AZURE_STORAGE_ACCOUNT_NAME")
 account_key = os.environ.get("AZURE_STORAGE_ACCOUNT_KEY")
 
+# Set up the Computer Vision client
+computer_vision_subscription_key = os.getenv('AZURE_COMPUTER_VISION_KEY')
+computer_vision_endpoint = os.getenv('AZURE_COMPUTER_VISION_ENDPOINT')
 
 # Initialize Redis client
 redis_client = Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, ssl=True, ssl_cert_reqs=None)
@@ -717,88 +721,61 @@ def get_configured_data_source():
 
     return data_source
 
-def prepare_model_args(request_body):
-    request_messages = request_body.get("messages", [])
+# def prepare_model_args(request_body, prompt_type='default'):
+#     request_messages = request_body.get("messages", [])
+
+#     # Validate that there is at least one message
+#     if not request_messages or len(request_messages) == 0:
+#         raise ValueError("The 'messages' field should contain at least one message.")
+
+#     # Initialize messages with the system message, if not using custom data
+#     messages = []
+#     if not SHOULD_USE_DATA:
+#         messages = [
+#             {
+#                 "role": "system",
+#                 "content": AZURE_OPENAI_SYSTEM_MESSAGE
+#             }
+#         ]
+
+#     # Add user and assistant messages
+#     for message in request_messages:
+#         if message:
+#             message_content = message["content"]
+
+#             if 'imageData' in message:
+#                 logging.debug(f"Handling image data in message {message['id']}")
+#                 message_content += " [Image attached]"  # Optional, for clarity
+
+#             # Ensure the message with user role is included even with imageData
+#             messages.append({
+#                 "role": message["role"],
+#                 "content": message_content
+#             })
+
+#     # Prepare the model arguments for the OpenAI API call
+#     model_args = {
+#         "messages": messages,
+#         "temperature": float(AZURE_OPENAI_TEMPERATURE),
+#         "max_tokens": int(AZURE_OPENAI_MAX_TOKENS),
+#         "top_p": float(AZURE_OPENAI_TOP_P),
+#         "stop": parse_multi_columns(AZURE_OPENAI_STOP_SEQUENCE) if AZURE_OPENAI_STOP_SEQUENCE else None,
+#         "stream": SHOULD_STREAM,
+#         "model": AZURE_OPENAI_MODEL,
+#     }
+
+#     # Add extra data sources if required
+#     if prompt_type == 'tutor':
+#         model_args["extra_body"] = {
+#             "dataSources": [get_configured_data_source()]
+#         }
+
+#     logging.debug(f"REQUEST BODY: {json.dumps(model_args, indent=4)}")
     
-    # Validate that there is at least one message
-    if not request_messages or len(request_messages) == 0:
-        raise ValueError("The 'messages' field should contain at least one message.")
-
-    # Initialize messages with the system message, if not using custom data
-    messages = []
-    if not SHOULD_USE_DATA:
-        messages = [
-            {
-                "role": "system",
-                "content": AZURE_OPENAI_SYSTEM_MESSAGE
-            }
-        ]
-
-    # Add user and assistant messages
-    for message in request_messages:
-        if message:
-            message_content = message["content"]
-
-            # Handle imageData properly: add it to a separate field or include it in the content if supported
-            if 'imageData' in message:
-                logging.debug(f"Handling image data in message {message['id']}")
-                
-                # Optionally, you can decide if the image data should be processed separately.
-                # For example, you can add a special marker in the content, e.g., "<image attached>"
-                # Or pass the image data separately for external processing.
-                message_content += " [Image attached]"  # This is optional and for clarity
-                
-                # You can also store the imageData for separate processing later if needed.
-                # Example: handle_image_data(message['imageData'])
-
-            # Ensure the message with user role is included even with imageData
-            messages.append({
-                "role": message["role"],
-                "content": message_content
-            })
-
-    # Prepare the model arguments for the OpenAI API call
-    model_args = {
-        "messages": messages,
-        "temperature": float(AZURE_OPENAI_TEMPERATURE),
-        "max_tokens": int(AZURE_OPENAI_MAX_TOKENS),
-        "top_p": float(AZURE_OPENAI_TOP_P),
-        "stop": parse_multi_columns(AZURE_OPENAI_STOP_SEQUENCE) if AZURE_OPENAI_STOP_SEQUENCE else None,
-        "stream": SHOULD_STREAM,
-        "model": AZURE_OPENAI_MODEL,
-    }
-
-    # Add extra data sources if required
-    if SHOULD_USE_DATA:
-        model_args["extra_body"] = {
-            "dataSources": [get_configured_data_source()]
-        }
-
-    # Sanitize sensitive information for logging
-    model_args_clean = copy.deepcopy(model_args)
-    if model_args_clean.get("extra_body"):
-        secret_params = ["key", "connectionString", "embeddingKey", "encodedApiKey", "apiKey"]
-        for secret_param in secret_params:
-            if model_args_clean["extra_body"]["dataSources"][0]["parameters"].get(secret_param):
-                model_args_clean["extra_body"]["dataSources"][0]["parameters"][secret_param] = "*****"
-        authentication = model_args_clean["extra_body"]["dataSources"][0]["parameters"].get("authentication", {})
-        for field in authentication:
-            if field in secret_params:
-                model_args_clean["extra_body"]["dataSources"][0]["parameters"]["authentication"][field] = "*****"
-        embeddingDependency = model_args_clean["extra_body"]["dataSources"][0]["parameters"].get("embeddingDependency", {})
-        if "authentication" in embeddingDependency:
-            for field in embeddingDependency["authentication"]:
-                if field in secret_params:
-                    model_args_clean["extra_body"]["dataSources"][0]["parameters"]["embeddingDependency"]["authentication"][field] = "*****"
-
-    # Log the sanitized request body for debugging purposes
-    logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
-    
-    return model_args
+#     return model_args
 
 def prepare_model_args_for_phi_vision(request_body):
-    logging.debug(f"Received request body: {json.dumps(request_body, indent=2)}")
-    
+
     request_messages = request_body.get("messages", [])
 
     image_url = None
@@ -813,13 +790,12 @@ def prepare_model_args_for_phi_vision(request_body):
                 image_data_base64 = message['imageData']
             user_text = message["content"]
 
-    logging.debug(f"Extracted image data: {image_data_base64}")
     logging.debug(f"Extracted user text: {user_text}")
 
     # Upload image to Azure Blob Storage and get the URL with SAS token
     if image_data_base64:
-        # Decode the base64 image data if necessary
         try:
+            # Decode the base64 image data
             image_data = base64.b64decode(image_data_base64.split(",")[1])
             image_url = upload_image_to_blob(image_data)
             logging.debug(f"Image uploaded to URL: {image_url}")
@@ -835,7 +811,18 @@ def prepare_model_args_for_phi_vision(request_body):
             "messages": [
                 {
                     "role": "user",
-                    "content": f"Here is an image: {image_url}. {user_text}"
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url  # Image URL goes here
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": user_text  # User text goes here
+                        }
+                    ]
                 }
             ],
             "max_tokens": 2048,
@@ -935,116 +922,170 @@ def upload_image_to_blob(image_data, container_name="ms-az-cognitive-im"):
         logging.exception("Exception in upload_image_to_blob")
         raise e
 
-async def send_chat_request(request, model):
-    request_messages = request.get("messages", [])
-    contains_image = any('imageData' in message for message in request_messages)
+def analyze_image_with_azure_computer_vision(image_url):
+    computervision_client = ComputerVisionClient(computer_vision_endpoint, CognitiveServicesCredentials(computer_vision_subscription_key))
 
-    if contains_image:
-        logging.debug("Image detected, using Phi-3-5 Vision Instruct model.")
-        payload = prepare_model_args_for_phi_vision(request)
-        response_content = await send_vision_instruct_request(payload)
+    # Analyze the image to get a description
+    description_results = computervision_client.describe_image(image_url)
+    
+    # Get the caption (best description) from the results
+    if description_results.captions:
+        description = description_results.captions[0].text
+    else:
+        description = "No description available."
 
-        # Wrap response in an object with an id and content for further processing
-        completionChunk = {
-            "id": "vision-instruct-response",  # Example ID
-            "content": response_content
+    return description
+
+import logging
+import base64
+
+async def analyze_image_with_azure_computer_vision(image_url):
+    # Assume you have the Azure Computer Vision client set up
+    computervision_client = ComputerVisionClient(computer_vision_endpoint, CognitiveServicesCredentials(computer_vision_subscription_key))
+
+    # Analyze the image to get a description
+    description_results = computervision_client.describe_image(image_url)
+    
+    # Get the caption (best description) from the results
+    if description_results.captions:
+        description = description_results.captions[0].text
+    else:
+        description = "No description available."
+
+    return description
+
+async def process_image_data(request_messages):
+    for message in request_messages:
+        if 'imageData' in message:
+            # Process image
+            logging.debug("Image detected in the request, processing with Azure Computer Vision.")
+
+            # Extract the base64 image data
+            image_data_base64 = message['imageData']
+
+            # Decode and upload image to Azure Blob Storage
+            image_data = base64.b64decode(image_data_base64.split(",")[1])
+            image_url = upload_image_to_blob(image_data)
+            logging.debug(f"Image uploaded to URL: {image_url}")
+
+            # Analyze the image using Azure Computer Vision
+            description = await analyze_image_with_azure_computer_vision(image_url)
+
+            # Modify the user's message with the image description
+            message['content'] = f"Describe this image: {description}"
+
+    return request_messages
+
+def prepare_model_args(request_body):
+    request_messages = request_body.get("messages", [])
+    messages = []
+
+    if not SHOULD_USE_DATA:
+        messages = [
+            {
+                "role": "system",
+                "content": AZURE_OPENAI_SYSTEM_MESSAGE
+            }
+        ]
+
+    # Add user and assistant messages
+    for message in request_messages:
+        if message:
+            messages.append({
+                "role": message["role"],
+                "content": message["content"]
+            })
+
+    # Prepare the model arguments for the OpenAI API call
+    model_args = {
+        "messages": messages,
+        "temperature": float(AZURE_OPENAI_TEMPERATURE),
+        "max_tokens": int(AZURE_OPENAI_MAX_TOKENS),
+        "top_p": float(AZURE_OPENAI_TOP_P),
+        "stop": parse_multi_columns(AZURE_OPENAI_STOP_SEQUENCE) if AZURE_OPENAI_STOP_SEQUENCE else None,
+        "stream": SHOULD_STREAM,
+        "model": AZURE_OPENAI_MODEL,
+    }
+
+    if SHOULD_USE_DATA:
+        model_args["extra_body"] = {
+            "dataSources": [get_configured_data_source()]
         }
 
-        # Yield the completion chunk for streaming
-        yield completionChunk
+    # Sanitize sensitive information for logging
+    model_args_clean = copy.deepcopy(model_args)
+    if model_args_clean.get("extra_body"):
+        secret_params = ["key", "connectionString", "embeddingKey", "encodedApiKey", "apiKey"]
+        for secret_param in secret_params:
+            if model_args_clean["extra_body"]["dataSources"][0]["parameters"].get(secret_param):
+                model_args_clean["extra_body"]["dataSources"][0]["parameters"][secret_param] = "*****"
+        authentication = model_args_clean["extra_body"]["dataSources"][0]["parameters"].get("authentication", {})
+        for field in authentication:
+            if field in secret_params:
+                model_args_clean["extra_body"]["dataSources"][0]["parameters"]["authentication"][field] = "*****"
+        embeddingDependency = model_args_clean["extra_body"]["dataSources"][0]["parameters"].get("embeddingDependency", {})
+        if "authentication" in embeddingDependency:
+            for field in embeddingDependency["authentication"]:
+                if field in secret_params:
+                    model_args_clean["extra_body"]["dataSources"][0]["parameters"]["embeddingDependency"]["authentication"][field] = "*****"
 
-    else:
-        logging.debug("No image detected, using ChatGPT model.")
-        model_args = prepare_model_args(request)
+    logging.debug(f"REQUEST BODY: {json.dumps(model_args_clean, indent=4)}")
 
-        try:
-            azure_openai_client = init_openai_client()
+    return model_args
 
-            if model == 'chatgpt4':
-                response = await azure_openai_client.chat.completions.create(**model_args)
-            else:
-                response = await azure_openai_client.chat.completions.create(**model_args)
+async def send_chat_request(request, model):
+    request_messages = request.get("messages", [])
 
-            # Wrap response in an object with an id and content for further processing
-            completionChunk = {
-                "id": "chatgpt-response",  # Example ID
-                "content": response.choices[0].message['content']
-            }
+    # Check and process image if present in the messages
+    request_messages = await process_image_data(request_messages)
 
-            # Yield the completion chunk for streaming
-            yield completionChunk
+    model_args = prepare_model_args(request)
+    print(f"Model arguments: {model_args}")  # Print the model arguments
 
-        except Exception as e:
-            logging.exception("Exception in send_chat_request")
-            raise e
+    try:
+        azure_openai_client = init_openai_client()
+        response = await azure_openai_client.chat.completions.create(**model_args)
+
+    except Exception as e:
+        logging.exception("Exception in send_chat_request")
+        raise e
+
+    return response
 
 async def complete_chat_request(request_body, model):
     response = await send_chat_request(request_body, model)
-    #log the response
-    logging.debug(f"Response from complete_chat_request model: {response}")
-
     history_metadata = request_body.get("history_metadata", {})
 
     return format_non_streaming_response(response, history_metadata)
 
 async def stream_chat_request(request_body, model):
+    response = await send_chat_request(request_body, model)
     history_metadata = request_body.get("history_metadata", {})
 
     async def generate():
-        async for completionChunk in send_chat_request(request_body, model):
-            # Pass the structured chunk to format_stream_response
+        async for completionChunk in response:
             yield format_stream_response(completionChunk, history_metadata)
 
     return generate()
 
-def format_stream_response(chatCompletionChunk, history_metadata):
-    # Return the formatted response
-    return {
-        "id": chatCompletionChunk["id"],  # Access the dictionary keys correctly
-        "content": chatCompletionChunk["content"],  # Access content using dictionary key
-        "history": history_metadata  # Pass the metadata if required
-    }
-
 async def conversation_internal(request_body):
     try:
-        # Log the full request body to verify the structure
-        logging.debug("Full request body received in conversation_internal: %s", json.dumps(request_body, indent=2))
-
-        # Check if 'request' key exists and extract messages from there
-        if 'request' in request_body:
-            messages = request_body['request'].get('messages', [])
-        else:
-            messages = request_body.get('messages', [])
-
-        if not messages or len(messages) == 0:
-            raise ValueError("The 'messages' field should contain at least one message.")
-
-        for message in messages:
-            if 'imageData' in message:
-                logging.debug('request body in conversation_internal (with truncated imageData): %s', json.dumps({**message, 'imageData': 'truncated'}))
-            else:
-                logging.debug('request body in conversation_internal: %s', json.dumps(message, indent=2))
-
-        # Extract the model or use the default one
-        model = request_body.get('model', 'chatgpt35')
-        
+        model = request_body.get('model', 'chatgpt35')  # Default to chatgpt-3.5 if not specified
         if SHOULD_STREAM:
-            logging.debug("Starting streaming request")
             result = await stream_chat_request(request_body, model)
             response = await make_response(format_as_ndjson(result))
             response.timeout = None
             response.mimetype = "application/json-lines"
+            #logging.debug(f"Result conversation_internal: {response}")
             return response
         else:
-            logging.debug("Starting non-streaming request")
             result = await complete_chat_request(request_body, model)
+            #log response json format
+            logging.debug(f"Response JSON conversation_internal: {json.dumps(result, indent=2)}")
             return jsonify(result)
-    
-    except ValueError as ve:
-        logging.error(f"Validation error in conversation_internal: {ve}")
-        return jsonify({"error": str(ve)}), 400
+
     except Exception as ex:
-        logging.exception(f"Unhandled exception in conversation_internal: {ex}")
+        logging.exception(ex)
         if hasattr(ex, "status_code"):
             return jsonify({"error": str(ex)}), ex.status_code
         else:
@@ -1058,8 +1099,8 @@ async def conversation():
     request_json = await request.get_json()
 
     # Log the request JSON
-    logging.info(f"Conversation Request - ID: {request_json.get('id', 'N/A')} - Payload: {request_json}")
-    logging.debug(f"Received request body: {json.dumps(request_json, indent=2)}")
+    #logging.info(f"Conversation Request - ID: {request_json.get('id', 'N/A')} - Payload: {request_json}")
+    #logging.debug(f"Received request body: {json.dumps(request_json, indent=2)}")
    
     return await conversation_internal(request_json)
 
